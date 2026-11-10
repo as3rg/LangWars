@@ -24,6 +24,15 @@ The public overlay uses a small dedicated ingress network (`172.30.250.0/29`). O
 
 Check `https://your.domain.example/api/health` after deployment. Public certificate issuance was not tested against a real domain in this session; the HTTPS stack was tested locally with a trusted test CA. The public configuration enables HSTS and restrictive browser headers. Run builds with refreshed base images periodically (`docker compose -f compose.yaml -f compose.public.yaml build --pull`).
 
+The production frontend bundles its fonts through Fontsource and serves them from
+the same origin as its scripts and CSS. It does not contact Google Fonts. Font
+licenses are distributed at `/fonts/licenses/`. Keep `script-src 'self'` and
+`font-src 'self'`: the application does not require inline JavaScript. CSP reports
+pointing to `content.js` or UUID-named sources can come from browser extensions;
+compare with a clean browser profile and inspect the source before attributing
+them to the application. Do not allow arbitrary inline scripts or copy unknown
+script hashes into the policy to silence extension injections.
+
 ## Accounts, invitations, and visibility
 
 Passwords use scrypt with `N=32768`, `r=8`, `p=3`, a fresh 16-byte random salt and a 32-byte derived hash. The stored record includes the parameters, and verification uses a constant-time comparison. These work factors match one of the [OWASP scrypt configurations](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html). Three concurrent hashing slots cap hashing memory at roughly 96 MiB; hashing does not hold the shared-world lock. Bearer sessions and invitation secrets are stored only as SHA-256 digests of high-entropy random tokens.
@@ -34,7 +43,7 @@ Registration defaults to invitation-only. An invitation permits 1–500 registra
 
 World visibility has four independent policies: variable names, variable values, function names, and function bodies/signatures. `admin_only` names remove the corresponding entries completely; hidden values produce names-only entries and never return function bodies, signatures, or remembered results. Administrators always retain full access. These settings control inspection through the website/API. The shared language can still compute with shared values, and deliberately public function bodies may mention variable names; visibility is not a new language isolation boundary.
 
-This release intentionally requires a fresh database. To discard the old development accounts, sessions, invitations, and world state, stop this application's stack and remove its PostgreSQL volume with `docker compose down --volumes`, then start the new stack. This deletes application data; schema and password-format migrations are deliberately absent.
+Take a verified backup before upgrading; schema migrations between incompatible experimental releases are not maintained. This update preserves the existing database and supplies missing settings. It adds translations to untouched default tasks; customized tasks retain their existing text. Do not remove the PostgreSQL volume during a routine image update.
 
 ## Workers on VPN hosts
 
@@ -63,11 +72,15 @@ docker compose exec -T db pg_dump -U langwars -d langwars -Fc -f /tmp/langwars.d
 docker compose cp db:/tmp/langwars.dump ./langwars.dump
 ```
 
-Back up before upgrading. Store backups outside this machine and test restoring them into a separate empty PostgreSQL database using `pg_restore`. Database backups contain password hashes, session hashes, private code, and administrator audit records. Preserve them accordingly.
+For scheduled physical incremental backups, full backups every N days, chain retention and tested recovery commands, see [Database backups and recovery](Backups.md). The optional `compose.backup.yaml` enables PostgreSQL 17 WAL summaries and an external backup directory without changing the normal deployment. The `pg_dump` command above remains useful for an independent logical export; restore that format with `pg_restore`, not the physical recovery procedure. Back up before upgrading and preserve off-host copies; backups contain password hashes, session hashes, private code, and administrator audit records.
 
-Deleting a user revokes their sessions. Published definitions remain part of the shared world until superseded or restored by an administrator, so deleting an account does not silently roll back other players' environment. Resetting a password also revokes active sessions.
+Deleting a user revokes their sessions. Published definitions remain part of the shared world until superseded or restored by an administrator. A ban has a separate, opt-in state removal action: it removes the user's currently owned variables/functions and restores their currently owned standard-library overrides to builtin behavior. Definitions another player has since overwritten are preserved. Resulting contract conflicts must be resolved before that combined ban/removal can commit. Password resets and bans revoke active sessions. The deny-list also applies to new logins and administrative login changes; existing accounts are reviewed and banned manually.
 
-Use the admin override restore action when a shared operation needs to return to its built-in behavior. Rejudging is read-only: it must never republish the original code's values. Scores count each currently passing task once per user, so repeated submissions do not farm points.
+Use the admin override restore action when a shared operation needs to return to its built-in behavior. Administrators can also edit or delete individual values and function definitions in World. These edits use the displayed world version, validate bounded language values/contracts, record an audit entry, and schedule rechecks. A conflicting concurrent publication requires refreshing and retrying. Rejudging is read-only: it must never republish the original code's values.
+
+Scores count each currently passing task once per user. The rating selector offers the whole world, individual tasks, and events with assigned tasks; player search preserves ranks within the selected ladder. Global scores also include administrative adjustments and any repeat-submission charges. Administrators can correct a player's login, score and solved task set; case-insensitive login uniqueness is enforced. A score correction establishes an offset from the current task total, so future solves and breaks still affect the score. Solved-task corrections survive rechecks; a fresh accepted submission for that task returns it to normal verdict tracking. Corrections never prevent solving other tasks later.
+
+The optional repeat-submission charge is disabled by default. Enable it and choose the percentage in administration. Submitting a currently green task then costs `ceil(task score * percentage / 100)` points, with confirmation before the job is queued. The charge occurs once at queue admission, even if the new code fails; retries by workers do not charge again. Runs, automatic rechecks, rejected admission requests and submissions to currently broken/unsolved tasks are free. Charges persist across rechecks and remain part of the score if the setting is later disabled. The frontend warns on green tasks, while the API independently requires explicit acceptance whenever a charge applies.
 
 ## Execution boundary
 

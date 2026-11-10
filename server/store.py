@@ -146,6 +146,25 @@ class Store:
                     tx.put("tasks", task["id"], task)
                 for news in initial_news():
                     tx.put("news", news["id"], news)
+            else:
+                world = tx.world()
+                from .ownership import remember_owners
+                previous_owners = dict(world.get("ownerUsers", {}))
+                remember_owners(tx, world)
+                defaults = initial_world()["settings"]
+                changed = previous_owners != world["ownerUsers"]
+                for key, value in defaults.items():
+                    if key not in world["settings"]:
+                        world["settings"][key] = value
+                        changed = True
+                if changed:
+                    world["version"] += 1
+                    tx.save_world(world)
+                for seeded in initial_tasks():
+                    task = tx.get("tasks", seeded["id"])
+                    if task and not task.get("translations") and all(task.get(key) == seeded.get(key) for key in ("title", "statement", "constraints", "examples", "tests")):
+                        task["translations"] = seeded["translations"]
+                        tx.put("tasks", task["id"], task)
 
     def claim(self):
         with self.transaction() as tx:

@@ -1,17 +1,19 @@
-﻿import { Link } from 'react-router-dom'
-
 import { useQuery } from '@tanstack/react-query'
+import { Link } from 'react-router-dom'
 import { api } from '@/api/client'
+import { t, useLocale } from '@/lib/i18n'
 
 export function LanguageGuide() {
+  useLocale()
   const config = useQuery({ queryKey: ['config'], queryFn: api.config })
-  return <details style={{ marginTop: 16 }}><summary style={{ cursor: 'pointer' }}>Language guide</summary>
-    <pre className="mono" style={{ whiteSpace: 'pre-wrap', marginTop: 12 }}>{'@solution\nfn <int, int> my_answer(left, right) {\n  let total = left + right;\n  if (total = 42) {\n    return total;\n  }\n  return left;\n}'}</pre>
-    <p className="muted">End statements with semicolons. Put conditions in parentheses. Equality is <code>=</code>; <code>==</code> is invalid. Logic uses <code>and</code>, <code>or</code>, and <code>not</code>. Loops use <code>while (condition) {'{ ... }'}</code>.</p>
-    <p className="muted">Values are integers, strings, lists, and dictionaries. Integers wrap between −1,000,000 and 1,000,000. Division and remainder by zero return 42. Floating point values are unavailable.</p>
-    <p className="muted">Use <code>get(collection, index)</code> for access; indices wrap around. <code>get([], index)</code> returns zero. <code>set</code> and <code>push_back</code> mutate lists. Reading an absent dictionary key inserts zero. Strings cannot be changed with <code>set</code>. Convert values with <code>int(value)</code>, <code>string(value)</code>, <code>list(value)</code>, or <code>dict(value)</code>.</p>
-    <p className="muted">All names, including parameters, are global. Build names from dictionary words joined by underscores{config.data ? `, up to ${config.data.maxNameLength} characters` : ''}. Each program needs exactly one <code>@solution</code> function. A function used as a value gives its last return value; calling a variable gives its value.</p>
-    <p className="muted">Permitted core annotations such as <code>@eq</code> change standard operations while preserving their contracts. Only inside a stdlib override body, <code>__builtin_eq__(left, right)</code> calls the original equality operation and <code>__builtin_concat__(left, right)</code> joins two strings using the original implementation. Solutions, ordinary helpers, and global initializers must use the standard operations. Overrides cannot call ordinary functions.</p>
-    <p className="muted">Accepted submissions publish definitions. Changes trigger rechecks of affected solutions; a passing solution can become broken. Runs never publish. Administrators control which shared names and definitions are visible. <Link to="/world">Explore the world and available words.</Link></p>
+  const samples = [
+    ['One entry point. Use = for equality, and/or/not for logic.', '@solution\nfn <int, int> answer(left, right) {\n  let total = left + right;\n  if (total = 42 and not (left = 0)) {\n    return total;\n  }\n  return 0;\n}'],
+    ['Lists and strings wrap indices. set mutates; concat creates a string.', 'let items = [10, 20, 30];\nget(items, -1);       // 30\nset(items, 0, 99);\nget(items, 3);        // 99\nlet data = {"cat": 7};\nget(data, "dog");     // 0; inserts the key\nconcat("cat", "!");   // "cat!"'],
+    ['while repeats. Types: int, string, list, dict. int("cat") is its length.', 'let index = 0;\nlet total = 0;\nwhile (index < length(items)) {\n  total = total + get(items, index);\n  index = index + 1;\n}\nint("cat");          // 3\nlet next = 1000000 + 1; // -1000000\nlet result = 7 / 0;   // 42'],
+    ['Overrides change operations for everyone. Builtin calls are allowed only inside overrides.', '@eq\nfn <int, int> equal(left, right) {\n  return __builtin_eq__(left, right);\n}\n// ordinary code uses eq(left, right) or left = right'],
+  ]
+  return <details style={{ marginTop: 16 }}><summary style={{ cursor: 'pointer' }}>{t('LWLang in examples')}</summary><div className="stack" style={{ marginTop: 12 }}>{samples.map(([note, code]) => <div key={code}><p className="muted">{t(note)}</p><pre className="mono" style={{ whiteSpace: 'pre-wrap' }}>{code}</pre></div>)}</div>
+    <p className="muted">{t('All names and parameters are global. A function used without () gives its last result. Accepted submissions publish changes; runs do not. Other players can break a passing solution.')}</p>
+    <p className="muted">{t('Use dictionary words joined with underscores, up to {count} characters.', { count: config.data?.maxNameLength ?? 64 })} <Link to="/world">{t('See available names and words →')}</Link></p>
   </details>
 }

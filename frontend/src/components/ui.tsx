@@ -1,3 +1,4 @@
+import { t, useLocale } from '@/lib/i18n'
 import clsx from 'clsx'
 import type { ButtonHTMLAttributes, HTMLAttributes, ReactNode } from 'react'
 import { Link, type LinkProps } from 'react-router-dom'
@@ -9,6 +10,7 @@ export function Panel({
   children,
   ...rest
 }: HTMLAttributes<HTMLDivElement> & { accent?: boolean }) {
+  useLocale()
   return (
     <div className={clsx('panel', accent && 'panel-accent', className)} {...rest}>
       {children}
@@ -35,6 +37,7 @@ export function GlowButton({
   disabled,
   ...rest
 }: GlowButtonProps) {
+  useLocale()
   return (
     <button
       className={clsx(
@@ -67,6 +70,7 @@ export function LinkButton({
   children,
   ...rest
 }: LinkButtonProps) {
+  useLocale()
   return (
     <Link
       className={clsx(
@@ -93,6 +97,7 @@ export function Badge({
   tone?: 'default' | 'cyan' | 'magenta' | 'violet' | 'amber'
   className?: string
 }) {
+  useLocale()
   return <span className={clsx('badge', tone !== 'default' && `badge-${tone}`, className)}>{children}</span>
 }
 
@@ -104,7 +109,8 @@ const DIFFICULTY_LABEL: Record<Difficulty, string> = {
 }
 
 export function DifficultyBadge({ difficulty }: { difficulty: Difficulty }) {
-  return <span className={clsx('badge', `diff-${difficulty}`)}>{DIFFICULTY_LABEL[difficulty]}</span>
+  useLocale()
+  return <span className={clsx('badge', `diff-${difficulty}`)}>{t(DIFFICULTY_LABEL[difficulty])}</span>
 }
 
 export const STATUS_LABEL: Record<VerdictStatus, string> = {
@@ -116,16 +122,18 @@ export const STATUS_LABEL: Record<VerdictStatus, string> = {
 }
 
 export function StatusPill({ status }: { status: VerdictStatus }) {
+  useLocale()
   const className = status === 'OK' ? 'status-ok' : status === 'TLE' ? 'status-warn' : 'status-bad'
   return (
     <span className={clsx('status-pill', className)}>
       <span className={clsx('status-dot', status === 'OK' ? 'ok' : status === 'TLE' ? 'warn' : 'bad')} />
-      {STATUS_LABEL[status]}
+      {t(STATUS_LABEL[status])}
     </span>
   )
 }
 
 export function PixelDivider() {
+  useLocale()
   return <div className="pixel-divider" aria-hidden="true" />
 }
 
@@ -138,26 +146,29 @@ export function EmptyState({
   children?: ReactNode
   icon?: ReactNode
 }) {
+  useLocale()
   return (
     <div className="empty-state">
       {icon}
-      <h3>{title}</h3>
+      <h3>{t(title)}</h3>
       {children ? <div className="muted">{children}</div> : null}
     </div>
   )
 }
 
 export function Loading({ label = 'summoning cats…' }: { label?: string }) {
+  useLocale()
   return (
     <div className="loading-block" role="status">
       <span className="spinner" aria-hidden="true" />
-      {label}
+      {t(label)}
     </div>
   )
 }
 
 export function ErrorNotice({ message }: { message: string }) {
-  return <div className="error-box" role="alert">{message}</div>
+  useLocale()
+  return <div className="error-box" role="alert">{t(message)}</div>
 }
 
 export function StatTile({
@@ -169,6 +180,7 @@ export function StatTile({
   value: ReactNode
   icon?: ReactNode
 }) {
+  useLocale()
   return (
     <div className="panel stat-tile">
       <div className="row-between">
@@ -189,6 +201,7 @@ export function Avatar({
   hue: number
   size?: 'sm' | 'lg'
 }) {
+  useLocale()
   const initials = username.replace(/[^a-zA-Z0-9]/g, '').slice(0, 2).toUpperCase() || '??'
   return (
     <span
@@ -204,9 +217,9 @@ export function Avatar({
 }
 
 export function ScorePill({ score }: { score: number }) {
+  useLocale()
   return (
-    <span className="badge badge-cyan" title="Task score">
-      {score} pts
-    </span>
+    <span className="badge badge-cyan" title={t("Task score")}>
+      {score} {t("pts")}</span>
   )
 }

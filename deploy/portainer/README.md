@@ -73,6 +73,8 @@ For an upgrade, change `LANGWARS_IMAGE_TAG` and redeploy with fresh image pulls.
 Keep all components on the same release. A digest from the workflow summary can
 be used for stricter image pinning by editing individual `image:` references.
 Database contents survive updates; back up before releases with schema changes.
+For automatic incremental backups and a full backup every N days, see the
+[Portainer backup setup and recovery guide](../../docs/Backups.md#portainer).
 Switching from a separately named Compose project does not automatically attach
 its old database volume—explicitly configure an existing external volume if that
 data should be retained, and never run two PostgreSQL servers against one volume.

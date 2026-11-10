@@ -18,6 +18,9 @@ def main():
     action = payload.pop("action", "judge")
     if action == "validate":
         result = validate_publication(**payload)
+    elif action == "edit":
+        from .admin_world import prepare_edit
+        result = prepare_edit(**payload)
     else:
         result = judge(**payload)
     encoded = json.dumps(result, ensure_ascii=True, separators=(",", ":"), allow_nan=False)

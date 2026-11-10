@@ -19,6 +19,7 @@ export interface User {
   banned?: boolean
   nameLimit?: number
   usedNames?: number
+  solvedTaskIds?: string[]
 }
 
 export interface AuthResponse {
@@ -51,6 +52,14 @@ export interface TaskSummary {
   addonPacks: string[]
   solved?: boolean
   attempted?: boolean
+  translations?: Partial<Record<'en' | 'ru', TaskTranslation>>
+}
+
+export interface TaskTranslation {
+  title: string
+  statement: string
+  constraints: string[]
+  examples?: TaskExample[]
 }
 
 export interface TaskExample {
@@ -77,6 +86,7 @@ export interface Task extends TaskSummary {
   ratingTable?: string
   allowedWords?: string[] | null
   coreOverrideLimit?: number
+  resubmitPenalty?: { enabled: boolean; percent: number; points: number }
 }
 
 export interface PlatformSettings {
@@ -90,6 +100,8 @@ export interface PlatformSettings {
   defaultCoreOverrideLimit: number
   maxQueuedJobs: number
   maxNameLength: number
+  resubmitPenaltyEnabled: boolean
+  resubmitPenaltyPercent: number
   worldVisibility: Record<'variables' | 'functions', Record<'names' | 'values', 'admin_only' | 'public'>>
 }
 

@@ -58,7 +58,7 @@ def revoke_sessions(tx, user_id):
 
 
 def public_user(user, admin=False):
-    value = {key: val for key, val in user.items() if key not in {"passwordHash", "claimedNames", "lastRun", "lastSubmit"}}
+    value = {key: val for key, val in user.items() if key not in {"passwordHash", "claimedNames", "lastRun", "lastSubmit", "solvedOverrides", "ratingAdjustment", "submissionPenalties"}}
     value["usedNames"] = len(user.get("claimedNames", []))
     if not admin:
         value.pop("adminNote", None)

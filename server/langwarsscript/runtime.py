@@ -207,7 +207,8 @@ class Parser:
                 if statement["op"] not in ("let", "assign"):
                     raise Rejected("Only declarations, assignments and functions are allowed globally", pos=statement["pos"])
                 top.append(statement)
-        if sum(f["annotation"] == "solution" for f in functions.values()) != 1:
+        solutions = sum(f["annotation"] == "solution" for f in functions.values())
+        if solutions > 1 or (self.options.get("require_solution", True) and solutions != 1):
             raise Rejected("Exactly one @solution function is required", "SOLUTION_COUNT")
         permitted = self.options.get("permitted_overrides", OPERATIONS)
         overrides = [f for f in functions.values() if f["annotation"] in OPERATIONS]

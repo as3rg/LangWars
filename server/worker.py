@@ -14,6 +14,7 @@ from pathlib import Path
 
 from .auth import prohibited
 from .store import Store, dumps, iso, uid
+from .scoring import refresh_ratings
 
 log = logging.getLogger("langwars.worker")
 
@@ -101,19 +102,6 @@ def redact_tests(result, task, admin=False):
         if not admin and index < len(task["tests"]) and task["tests"][index].get("hidden"):
             clean["tests"][index] = {"name": f"Hidden test {index + 1}", "input": "<hidden>", "expected": "<hidden>", "passed": bool(test.get("passed")), "durationMs": test.get("durationMs", 0)}
     return clean
-
-
-def refresh_ratings(tx):
-    tasks = {t["id"]: t for t in tx.list("tasks")}
-    solves = {}
-    for user_id, task_id in tx.execute("SELECT DISTINCT user_id,task_id FROM records WHERE kind='submissions' AND state='OK'").fetchall():
-        if task_id in tasks:
-            solves.setdefault(user_id, set()).add(task_id)
-    for user in tx.list("users"):
-        completed = solves.get(user["id"], set())
-        user["solvedCount"] = len(completed)
-        user["rating"] = sum(tasks[key]["score"] for key in completed)
-        tx.put("users", user["id"], user)
 
 
 def ranking(tx, user_id):
@@ -204,6 +192,7 @@ def process_restore(store, job):
                 del candidate["snapshot"]["functions"][name]
                 candidate["snapshot"]["last"].pop(name, None)
                 candidate["owners"].pop(name, None)
+                candidate.setdefault("ownerUsers", {}).pop(name, None)
             elif isinstance(definition, list):
                 candidate["snapshot"]["functions"][name] = keep
         opts = options_for(candidate, {"coreOverrideLimit": 1000})
@@ -301,18 +290,18 @@ def process_job(store, job):
                 refresh_ratings(tx)
                 finish(tx, job, result={"status": result["status"], "submissionId": sub["id"]})
                 return
-            before_rating = latest_user["rating"]
+            before_rating = latest_user["rating"] + job.get("penaltyPoints", 0)
             before_rank = ranking(tx, user["id"])
             submission_id = uid("sub_")
             clean = redact_tests(result, task)
             submission = {"id": submission_id, "taskId": task["id"], "taskTitle": task["title"], "userId": user["id"],
-                          "username": user["username"], "status": result["status"], "score": task["score"] if result["status"] == "OK" else 0,
+                          "username": latest_user["username"], "status": result["status"], "score": task["score"] if result["status"] == "OK" else 0,
                           "languageVersion": job["languageVersion"], "createdAt": job["createdAt"], "code": job["code"],
                           "durationMs": sum(t.get("durationMs", 0) for t in result["tests"]),
                           "testsPassed": sum(bool(t.get("passed")) for t in result["tests"]), "testsTotal": len(result["tests"]),
                           "tests": clean["tests"], "diagnostics": result["diagnostics"], "stdout": result["stdout"],
                           "dependencies": result.get("dependencies", []), "names": sorted(names), "everAccepted": result["status"] == "OK",
-                          "worldVersion": latest["version"]}
+                          "worldVersion": latest["version"], "penaltyPoints": job.get("penaltyPoints", 0)}
             if result["status"] == "OK":
                 # Quotas and account state can change independently of the namespace version.
                 if len(set(latest_user.get("claimedNames", [])) | names) > latest_user["nameLimit"]:
@@ -325,7 +314,9 @@ def process_job(store, job):
                     submission["worldVersion"] = latest["version"]
                     for name in set(changes.get("variables", {})) | set(changes.get("functions", {})):
                         latest["owners"][name] = submission_id
+                        latest.setdefault("ownerUsers", {})[name] = user["id"]
                     latest_user["claimedNames"] = sorted(set(latest_user.get("claimedNames", [])) | names)
+                    latest_user.get("solvedOverrides", {}).pop(task["id"], None)
                     tx.put("users", user["id"], latest_user)
                     tx.save_world(latest)
                     schedule_rechecks(tx, invalidations, latest, exclude=submission_id)

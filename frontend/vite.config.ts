@@ -15,6 +15,8 @@ export default defineConfig({
     proxy: { '/api': 'http://127.0.0.1:8000' },
   },
   build: {
+    // Even small font subsets must be files: the production CSP uses font-src 'self'.
+    assetsInlineLimit: 0,
     rollupOptions: {
       output: {
         manualChunks: {

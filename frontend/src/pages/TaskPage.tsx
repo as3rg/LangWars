@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { Link, useParams } from 'react-router-dom'
 import clsx from 'clsx'
 import {
@@ -35,6 +36,7 @@ import { formatRelative } from '@/lib/time'
 import { plural } from '@/lib/plural'
 import { toast } from '@/store/ui'
 import { CustomTaskPage } from './custom/registry'
+import { t, useLocale } from '@/lib/i18n'
 
 function messageOf(error: unknown): string {
   if (error instanceof ApiError) return error.message
@@ -43,12 +45,13 @@ function messageOf(error: unknown): string {
 }
 
 export function TaskPage() {
+  useLocale()
   const { id } = useParams()
   const query = useTask(id)
   const { user } = useSession()
 
-  if (query.isLoading) return <Loading label="opening task…" />
-  if (query.error) return <ErrorNotice message="Could not load this task." />
+  if (query.isLoading) return <Loading label={t("opening task…")} />
+  if (query.error) return <ErrorNotice message={t("Could not load this task.")} />
   if (!query.data) return null
 
   return <TaskWorkspace key={`${query.data.id}:${user?.id ?? 'guest'}`} task={query.data} />
@@ -57,6 +60,8 @@ export function TaskPage() {
 type TabId = 'mine' | 'all' | 'rating' | string
 
 function TaskWorkspace({ task }: { task: Task }) {
+  useLocale()
+  const queryClient = useQueryClient()
   const { user, isAdmin } = useSession()
   const version: LangVersion = isLangVersion(task.languageVersion) ? task.languageVersion : LATEST_VERSION
   const storageKey = `langwars.code.v2.${user?.id ?? 'guest'}.${task.id}`
@@ -97,7 +102,7 @@ function TaskWorkspace({ task }: { task: Task }) {
         onSuccess: (result) => {
           setRunResult(result)
           setChecked({ code, diagnostics: result.diagnostics ?? [] })
-          toast(result.status === 'OK' ? 'success' : 'info', `Sample run: ${result.status}`)
+          toast(result.status === 'OK' ? 'success' : 'info', t('Sample run: {status}', { status: result.status }))
         },
         onError: (error) => toast('error', messageOf(error)),
       },
@@ -105,9 +110,11 @@ function TaskWorkspace({ task }: { task: Task }) {
   }
 
   const handleSubmit = () => {
+    const penalty = task.resubmitPenalty
+    if (penalty?.enabled && penalty.points > 0 && !window.confirm(t('This task is already solved. Submitting again costs {points} points ({percent}%). Continue?', { points: penalty.points, percent: penalty.percent }))) return
     setRunResult(null)
     submit.mutate(
-      { code, version },
+      { code, version, acceptResubmitPenalty: Boolean(penalty?.enabled && penalty.points > 0), expectedPenaltyPoints: penalty?.points },
       {
         onSuccess: (result) => {
           setVerdict(result)
@@ -115,14 +122,16 @@ function TaskWorkspace({ task }: { task: Task }) {
           toast(
             result.submission.status === 'OK' ? 'success' : 'error',
             result.submission.status === 'OK'
-              ? `Accepted! +${result.ratingUpdate.delta} rating`
-              : `Verdict: ${result.submission.status}. Mochi believes in you.`,
+              ? t('Accepted · {points} points', { points: result.ratingUpdate.delta >= 0 ? `+${result.ratingUpdate.delta}` : result.ratingUpdate.delta })
+              : t('Verdict: {status}', { status: result.submission.status }),
           )
         },
-        onError: (error) => toast('error', messageOf(error)),
+        onError: (error) => { if (error instanceof ApiError && error.code === 'PENALTY_CONFIRMATION_REQUIRED') queryTaskRefresh(); toast('error', messageOf(error)) },
       },
     )
   }
+
+  const queryTaskRefresh = () => { queryClient.invalidateQueries({ queryKey: ['task', task.id] }); queryClient.invalidateQueries({ queryKey: ['config'] }) }
 
   const reset = () => {
     setCode(task.starterCode)
@@ -138,8 +147,7 @@ function TaskWorkspace({ task }: { task: Task }) {
     <div>
       <div className="crumbs">
         <Link to="/tasks" className="row" style={{ gap: 5 }}>
-          <ArrowLeft size={12} /> tasks
-        </Link>
+          <ArrowLeft size={12} /> {t("tasks")}</Link>
         <span>/</span>
         <span>{task.slug}</span>
       </div>
@@ -150,12 +158,12 @@ function TaskWorkspace({ task }: { task: Task }) {
             <DifficultyBadge difficulty={task.difficulty} />
             <ScorePill score={task.score} />
             <Badge tone="violet">{task.languageVersion}</Badge>
-            {task.ratingTable && <Badge tone="amber">event task</Badge>}
+            {task.ratingTable && <Badge tone="amber">{t("event task")}</Badge>}
           </div>
           <h1>{task.title}</h1>
           <div className="task-meta-row">
             <span>
-              <Users size={12} style={{ verticalAlign: '-1px' }} /> {plural(task.solvedBy, 'solve')}
+              <Users size={12} style={{ verticalAlign: '-1px' }} /> {plural(task.solvedBy, "solve")}
             </span>
             {task.tags.map((tag) => (
               <span className="tag" key={tag}>
@@ -166,11 +174,9 @@ function TaskWorkspace({ task }: { task: Task }) {
         </div>
         <div className="row wrap" style={{ gap: 8 }}>
           <GlowButton size="sm" onClick={reset} icon={<RotateCcw size={13} />}>
-            Reset code
-          </GlowButton>
+            {t("Reset code")}</GlowButton>
           <LinkButton to="/rating" size="sm" icon={<Trophy size={13} />}>
-            Rating
-          </LinkButton>
+            {t("Rating")}</LinkButton>
         </div>
       </div>
 
@@ -178,18 +184,18 @@ function TaskWorkspace({ task }: { task: Task }) {
         <Panel className="statement-panel">
           <Markdown text={task.statement} />
 
-          <h3 style={{ marginTop: 24, fontSize: 17 }}>Examples</h3>
+          <h3 style={{ marginTop: 24, fontSize: 17 }}>{t("Examples")}</h3>
           <div style={{ marginTop: 10 }}>
             {task.examples.map((example, index) => (
               <div className="example" key={index}>
-                <div className="example-head">example {index + 1}</div>
+                <div className="example-head">{t("example ")}{index + 1}</div>
                 <div className="example-body">
                   <div>
-                    <span className="example-label">input</span>
+                    <span className="example-label">{t("input")}</span>
                     <span className="mono">{example.input}</span>
                   </div>
                   <div>
-                    <span className="example-label">output</span>
+                    <span className="example-label">{t("output")}</span>
                     <span className="mono example-output">{example.output}</span>
                   </div>
                 </div>
@@ -202,26 +208,25 @@ function TaskWorkspace({ task }: { task: Task }) {
             ))}
           </div>
 
-          <h3 style={{ marginTop: 22, fontSize: 17 }}>Constraints</h3>
+          <h3 style={{ marginTop: 22, fontSize: 17 }}>{t("Constraints")}</h3>
           <ul className="constraints" style={{ marginTop: 10 }}>
             {task.constraints.map((constraint) => (
               <li key={constraint}>{constraint}</li>
             ))}
           </ul>
 
-          <p className="muted" style={{ marginTop: 20 }}>Run checks the examples. Submit checks all tests and publishes changes when accepted. Time limit: {task.timeLimitMs} ms.</p>
-          <p className="muted">Use exactly one <code>@solution</code> function. Names and parameters are global; another player can change them later.</p>
-          {task.coreOverrideLimit !== undefined && <p className="mono dim">Up to {task.coreOverrideLimit} core overrides.</p>}
-          <Link to="/world">Explore shared names and available words →</Link>
+          <p className="muted" style={{ marginTop: 20 }}>{t("Run checks the examples. Submit checks all tests and publishes changes when accepted. Time limit: ")}{task.timeLimitMs} {t("ms.")}</p>
+          <p className="muted">{t("Use exactly one ")}<code>@solution</code> {t("function. Names and parameters are global; another player can change them later.")}</p>
+          {task.coreOverrideLimit !== undefined && <p className="mono dim">{t("Up to ")}{task.coreOverrideLimit} {t("core overrides.")}</p>}
+          <Link to="/world">{t("Explore shared names and available words →")}</Link>
           <LanguageGuide />
-          {task.allowedWords?.length ? <details style={{ marginTop: 12 }}><summary>Words for this task</summary><p className="mono muted">{task.allowedWords.join(', ')}</p></details> : null}
+          {task.allowedWords?.length ? <details style={{ marginTop: 12 }}><summary>{t("Words for this task")}</summary><p className="mono muted">{task.allowedWords.join(', ')}</p></details> : null}
         </Panel>
 
         <div className="workspace">
           {!user && (
             <div className="notice">
-              <Link to="/auth">Sign in</Link> to run code and publish a solution.
-            </div>
+              <Link to="/auth">{t("Sign in")}</Link> {t("to run code and publish a solution.")}</div>
           )}
 
           <LwEditor
@@ -236,7 +241,9 @@ function TaskWorkspace({ task }: { task: Task }) {
             submitting={submit.isPending}
           />
 
-          {(run.isPending || submit.isPending) && <div className="notice" role="status">{submit.isPending ? 'Submission queued or running. Changes publish only after every check passes.' : 'Run queued or running…'}</div>}
+          {user && task.resubmitPenalty?.enabled && task.resubmitPenalty.points > 0 && <div className="notice" role="status">{t('Already solved · resubmission costs {points} points ({percent}%). Runs are free.', { points: task.resubmitPenalty.points, percent: task.resubmitPenalty.percent })}</div>}
+
+          {(run.isPending || submit.isPending) && <div className="notice" role="status">{submit.isPending ? t("Submission queued or running. Changes publish only after every check passes.") : t("Run queued or running…")}</div>}
 
           {runResult && (
             <Panel className="panel-pad">
@@ -244,12 +251,10 @@ function TaskWorkspace({ task }: { task: Task }) {
                 <div className="row" style={{ gap: 10 }}>
                   <StatusPill status={runResult.status} />
                   <span className="mono dim" style={{ fontSize: 11.5 }}>
-                    example tests
-                  </span>
+                    {t("example tests")}</span>
                 </div>
                 <button className="mono dim" style={{ background: 'none', border: 'none', cursor: 'pointer' }} onClick={() => setRunResult(null)}>
-                  dismiss
-                </button>
+                  {t("dismiss")}</button>
               </div>
               <div className="run-output">
                 {runResult.tests.map((test, index) => (
@@ -257,8 +262,8 @@ function TaskWorkspace({ task }: { task: Task }) {
                     <span className={`status-dot ${test.passed ? 'ok' : 'bad'}`} />
                     <span className="name">{test.name}</span>
                     <span className="mono dim">{test.input}</span>
-                    {!test.passed && <span className="mono">expected {test.expected}; got {test.actual ?? 'no result'}</span>}
-                    <span style={{ marginLeft: 'auto' }}>{test.passed ? 'passed' : 'failed'}</span>
+                    {!test.passed && <span className="mono">{t("expected ")}{test.expected}{t("; got ")}{test.actual ?? t("no result")}</span>}
+                    <span style={{ marginLeft: 'auto' }}>{test.passed ? t("passed") : t("failed")}</span>
                   </div>
                 ))}
                 {runResult.stdout && (
@@ -284,20 +289,20 @@ function TaskWorkspace({ task }: { task: Task }) {
               />
               <div>
                 <div className="verdict-title">
-                  {verdict.submission.status === 'OK' ? 'ACCEPTED' : 'NOT ACCEPTED'}
+                  {verdict.submission.status === "OK" ? t("ACCEPTED") : t("NOT ACCEPTED")}
                 </div>
                 <div className="verdict-stats" style={{ marginTop: 8 }}>
                   <span>
-                    score <strong>{verdict.submission.score}</strong>
+                    {t("score ")}<strong>{verdict.submission.score}</strong>
                   </span>
                   <span>
-                    tests{' '}
+                    {t("tests")}{' '}
                     <strong>
                       {verdict.submission.testsPassed}/{verdict.submission.testsTotal}
                     </strong>
                   </span>
                   <span>
-                    rating{' '}
+                    {t("rating")}{' '}
                     <strong
                       style={{
                         color: verdict.ratingUpdate.delta >= 0 ? 'var(--cyan)' : 'var(--magenta)',
@@ -309,18 +314,17 @@ function TaskWorkspace({ task }: { task: Task }) {
                     </strong>
                   </span>
                   <span>
-                    rank <strong>#{verdict.ratingUpdate.rank}</strong>{' '}
-                    <span className="dim">(was #{verdict.ratingUpdate.rankBefore})</span>
+                    {t("rank ")}<strong>#{verdict.ratingUpdate.rank}</strong>{' '}
+                    <span className="dim">{t("(was #")}{verdict.ratingUpdate.rankBefore})</span>
                   </span>
                 </div>
               </div>
               <div className="verdict-actions">
                 <GlowButton size="sm" onClick={() => setOpenSubmission(verdict.submission.id)}>
-                  View submission
-                </GlowButton>
+                  {t("View submission")}</GlowButton>
                 <button
                   className="icon-btn"
-                  aria-label="Dismiss verdict"
+                  aria-label={t("Dismiss verdict")}
                   onClick={() => setVerdict(null)}
                 >
                   ×
@@ -332,21 +336,17 @@ function TaskWorkspace({ task }: { task: Task }) {
           <Panel className="panel-pad">
             <div className="tabs">
               <button className={tab === 'mine' ? 'tab active' : 'tab'} onClick={() => setTab('mine')}>
-                <ListChecks size={13} /> My submissions
-              </button>
+                <ListChecks size={13} /> {t("My submissions")}</button>
               <button className={tab === 'all' ? 'tab active' : 'tab'} onClick={() => setTab('all')}>
-                <Users size={13} /> All submissions
-              </button>
+                <Users size={13} /> {t("All submissions")}</button>
               <button className={tab === 'rating' ? 'tab active' : 'tab'} onClick={() => setTab('rating')}>
-                <Trophy size={13} /> Task rating
-              </button>
+                <Trophy size={13} /> {t("Task rating")}</button>
               {task.ratingTable && (
                 <button
                   className={tab === 'event' ? 'tab active' : 'tab'}
                   onClick={() => setTab('event')}
                 >
-                  <Sparkles size={13} /> Event ladder
-                </button>
+                  <Sparkles size={13} /> {t("Event ladder")}</button>
               )}
               {customPages.map((page) => (
                 <button
@@ -359,41 +359,40 @@ function TaskWorkspace({ task }: { task: Task }) {
               ))}
             </div>
 
-            {tab === 'mine' &&
+            {tab === "mine" &&
               (user ? (
                 <TaskSubmissions
                   query={mine}
                   currentUserId={user.id}
                   isAdmin={isAdmin}
                   onOpen={setOpenSubmission}
-                  emptyTitle="No submissions yet"
-                  emptyBody="Run your code, then submit. The cat keeps receipts."
+                  emptyTitle={t("No submissions yet")}
+                  emptyBody={t("Run your code, then submit. The cat keeps receipts.")}
                 />
               ) : (
-                <EmptyState title="Sign in to see your submissions">
-                  <Link to="/auth">Sign in</Link>
+                <EmptyState title={t("Sign in to see your submissions")}>
+                  <Link to="/auth">{t("Sign in")}</Link>
                 </EmptyState>
               ))}
 
-            {tab === 'all' &&
+            {tab === "all" &&
               (user ? (
                 <TaskSubmissions
                   query={all}
                   currentUserId={user.id}
                   isAdmin={isAdmin}
                   onOpen={setOpenSubmission}
-                  emptyTitle="No submissions for this task yet"
-                  emptyBody="Be the first cat on the board."
+                  emptyTitle={t("No submissions for this task yet")}
+                  emptyBody={t("Be the first cat on the board.")}
                 />
               ) : (
-                <EmptyState title="Sign in to see the submission log">
-                  Code stays private; the log does not.
-                </EmptyState>
+                <EmptyState title={t("Sign in to see the submission log")}>
+                  {t("Code stays private; the log does not.")}</EmptyState>
               ))}
 
-            {tab === 'rating' && <RatingTablePanel tableId={`task:${task.id}`} />}
+            {tab === "rating" && <RatingTablePanel tableId={`task:${task.id}`} />}
 
-            {tab === 'event' && task.ratingTable && <RatingTablePanel tableId={task.ratingTable} />}
+            {tab === "event" && task.ratingTable && <RatingTablePanel tableId={task.ratingTable} />}
 
             {activeCustom && <CustomTaskPage task={task} kind={activeCustom.kind} />}
           </Panel>
@@ -420,8 +419,9 @@ function TaskSubmissions({
   emptyTitle: string
   emptyBody: string
 }) {
-  if (query.isLoading) return <Loading label="loading submissions…" />
-  if (query.error) return <ErrorNotice message="Could not load submissions." />
+  useLocale()
+  if (query.isLoading) return <Loading label={t("loading submissions…")} />
+  if (query.error) return <ErrorNotice message={t("Could not load submissions.")} />
   const items: SubmissionSummary[] = query.data ?? []
   if (items.length === 0) return <EmptyState title={emptyTitle}>{emptyBody}</EmptyState>
 
@@ -430,13 +430,13 @@ function TaskSubmissions({
       <table className="data-table">
         <thead>
           <tr>
-            <th>When</th>
-            <th>Cat</th>
-            <th>Status</th>
-            <th style={{ textAlign: 'right' }}>Score</th>
-            <th>Tests</th>
-            <th>Time</th>
-            <th>Lang</th>
+            <th>{t("When")}</th>
+            <th>{t("Cat")}</th>
+            <th>{t("Status")}</th>
+            <th style={{ textAlign: 'right' }}>{t("Score")}</th>
+            <th>{t("Tests")}</th>
+            <th>{t("Time")}</th>
+            <th>{t("Lang")}</th>
             <th />
           </tr>
         </thead>
@@ -455,7 +455,7 @@ function TaskSubmissions({
                 <td>
                   <span className="row" style={{ gap: 6 }}>
                     {submission.username}
-                    {submission.userId === currentUserId && <span className="badge badge-cyan">you</span>}
+                    {submission.userId === currentUserId && <span className="badge badge-cyan">{t("you")}</span>}
                   </span>
                 </td>
                 <td>
@@ -467,9 +467,9 @@ function TaskSubmissions({
                 <td className="mono-cell">
                   {submission.testsPassed}/{submission.testsTotal}
                 </td>
-                <td className="mono-cell">{submission.durationMs} ms</td>
+                <td className="mono-cell">{submission.durationMs} {t("ms")}</td>
                 <td className="mono-cell">{submission.languageVersion}</td>
-                <td className="mono-cell dim">{canOpen ? <button className="filter-chip" onClick={(event) => { event.stopPropagation(); onOpen(submission.id) }}>Open</button> : 'private'}</td>
+                <td className="mono-cell dim">{canOpen ? <button className="filter-chip" onClick={(event) => { event.stopPropagation(); onOpen(submission.id) }}>{t("Open")}</button> : t("private")}</td>
               </tr>
             )
           })}

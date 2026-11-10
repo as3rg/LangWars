@@ -1,4 +1,4 @@
-﻿import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { api, tokenStore } from './client'
 
 const result = { status: 'OK', tests: [], stdout: '' }
@@ -41,6 +41,20 @@ describe('registration and invitations', () => {
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals() })
 
 describe('queued execution', () => {
+  it('does not consent to a resubmission charge by default', async () => {
+    const fetch = vi.fn().mockResolvedValue(json({ error: { code: 'PENALTY_CONFIRMATION_REQUIRED', message: 'Confirm charge' } }, 409))
+    vi.stubGlobal('fetch', fetch)
+    await expect(api.submit('sum', 'code', 'v0.3')).rejects.toMatchObject({ code: 'PENALTY_CONFIRMATION_REQUIRED' })
+    expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({ code: 'code', languageVersion: 'v0.3', acceptResubmitPenalty: false })
+    expect(fetch).toHaveBeenCalledOnce()
+  })
+  it('sends the exact charge the player confirmed and never automatically retries a changed price', async () => {
+    const fetch = vi.fn().mockResolvedValue(json({ error: { code: 'PENALTY_CONFIRMATION_REQUIRED', message: 'Price changed' } }, 409))
+    vi.stubGlobal('fetch', fetch)
+    await expect(api.submit('sum', 'code', 'v0.3', true, 5)).rejects.toMatchObject({ code: 'PENALTY_CONFIRMATION_REQUIRED' })
+    expect(JSON.parse(fetch.mock.calls[0][1].body)).toMatchObject({ acceptResubmitPenalty: true, expectedPenaltyPoints: 5 })
+    expect(fetch).toHaveBeenCalledOnce()
+  })
   it('keeps polling queued and running jobs until a completed result arrives', async () => {
     const fetch = vi.fn().mockResolvedValueOnce(json({ jobId: 'job-one' }, 202)).mockResolvedValueOnce(json({ status: 'queued' })).mockResolvedValueOnce(json({ status: 'running' })).mockResolvedValueOnce(json({ status: 'completed', result }))
     vi.stubGlobal('fetch', fetch)
@@ -75,5 +89,24 @@ describe('queued execution', () => {
     const rejected = expect(pending).rejects.toMatchObject({ code: 'REQUEST_TIMEOUT' })
     await vi.advanceTimersByTimeAsync(20_000)
     await rejected
+  })
+})
+
+describe('world and player search', () => {
+  it('passes the world revision with administrator edits', async () => {
+    const fetch = vi.fn().mockResolvedValue(json({ version: 8 }))
+    vi.stubGlobal('fetch', fetch)
+    await api.editWorld('shared_answer', { version: 7, kind: 'variable', value: { $dict: [['cat', 7]] } })
+    expect(fetch.mock.calls[0][0]).toBe('/api/admin/world/shared_answer')
+    expect(fetch.mock.calls[0][1].method).toBe('PATCH')
+    expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({ version: 7, kind: 'variable', value: { $dict: [['cat', 7]] } })
+  })
+  it('encodes search text independently from the selected task leaderboard', async () => {
+    const fetch = vi.fn().mockResolvedValue(json({ rows: [] }))
+    vi.stubGlobal('fetch', fetch)
+    await api.rating('task:sum', 'name+under_score')
+    const url = new URL(fetch.mock.calls[0][0], 'http://localhost')
+    expect(url.searchParams.get('table')).toBe('task:sum')
+    expect(url.searchParams.get('q')).toBe('name+under_score')
   })
 })

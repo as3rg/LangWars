@@ -1,3 +1,4 @@
+import { t, useLocale } from '@/lib/i18n'
 import { AlertCircle, CheckCircle2, Info, X } from 'lucide-react'
 import { useToastStore } from '@/store/ui'
 
@@ -8,6 +9,7 @@ const ICONS = {
 } as const
 
 export function ToastHost() {
+  useLocale()
   const toasts = useToastStore((state) => state.toasts)
   const dismiss = useToastStore((state) => state.dismiss)
 
@@ -20,8 +22,8 @@ export function ToastHost() {
         return (
           <div className={`toast toast-${toast.kind}`} key={toast.id}>
             <Icon size={16} color={toast.kind === 'error' ? 'var(--magenta)' : 'var(--cyan)'} />
-            <span className="grow">{toast.message}</span>
-            <button className="icon-btn" style={{ width: 22, height: 22 }} onClick={() => dismiss(toast.id)} aria-label="Dismiss">
+            <span className="grow">{t(toast.message)}</span>
+            <button className="icon-btn" style={{ width: 22, height: 22 }} onClick={() => dismiss(toast.id)} aria-label={t("Dismiss")}>
               <X size={12} />
             </button>
           </div>

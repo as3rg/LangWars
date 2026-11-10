@@ -16,9 +16,9 @@
   --ok: #0ff1ca;
   --bad: #ff2e88;
   --warn: #ffcf5c;
-  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
-  --font-body: 'Space Grotesk', system-ui, -apple-system, sans-serif;
-  --font-pixel: 'Press Start 2P', 'JetBrains Mono', monospace;
+  --font-mono: 'JetBrains Mono Variable', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-body: 'Space Grotesk Variable', system-ui, -apple-system, sans-serif;
+  --font-pixel: 'Press Start 2P', 'JetBrains Mono Variable', monospace;
   --radius: 14px;
   --shadow-glow: 0 0 0 1px rgba(15, 241, 202, 0.12), 0 0 32px rgba(15, 241, 202, 0.08);
 }
