@@ -1,11 +1,13 @@
-import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { LogIn, ShieldCheck, UserPlus } from 'lucide-react'
 import { useLogin, useLogout, useRegister, useSession } from '@/api/hooks'
-import { ApiError } from '@/api/client'
+import { api, ApiError } from '@/api/client'
 import { CatMascot } from '@/components/CatMascot'
 import { Avatar, Badge, GlowButton, LinkButton, Panel } from '@/components/ui'
 import { toast } from '@/store/ui'
+import { inviteFromFragment } from '@/lib/invites'
 
 function errorMessage(error: unknown): string {
   if (error instanceof ApiError) return error.message
@@ -16,14 +18,27 @@ function errorMessage(error: unknown): string {
 export function AuthPage() {
   const { user, isAdmin } = useSession()
   const navigate = useNavigate()
+  const location = useLocation()
   const login = useLogin()
   const register = useRegister()
   const logout = useLogout()
+  const config = useQuery({ queryKey: ['config'], queryFn: api.config })
 
-  const [mode, setMode] = useState<'login' | 'register'>('login')
-  const [username, setUsername] = useState('neko')
-  const [password, setPassword] = useState('nyanya')
-  const [email, setEmail] = useState('')
+  const [mode, setMode] = useState<'login' | 'register'>(() => inviteFromFragment(location.hash) ? 'register' : 'login')
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
+  const [inviteCode, setInviteCode] = useState(() => inviteFromFragment(location.hash))
+
+  useEffect(() => {
+    const code = inviteFromFragment(location.hash)
+    if (code) {
+      setInviteCode(code)
+      setMode('register')
+    }
+    if (new URLSearchParams(location.hash.slice(1)).has('invite')) {
+      window.history.replaceState(window.history.state, '', location.pathname + location.search)
+    }
+  }, [location.hash, location.pathname, location.search])
 
   const doLogin = (name = username, pass = password) => {
     login.mutate(
@@ -39,7 +54,7 @@ export function AuthPage() {
 
   const doRegister = () => {
     register.mutate(
-      { username, email, password },
+      { username, password, inviteCode: inviteCode || undefined },
       {
         onSuccess: (data) => {
           toast('success', `Account created: ${data.user.username}`)
@@ -68,11 +83,6 @@ export function AuthPage() {
                 )}
               </div>
             </div>
-          </div>
-
-          <div className="notice mt-24">
-            Auth is mocked, but the contract is server-owned: the frontend only stores the JWT and
-            calls <code className="mono">/me</code>. Admin-only routes are enforced by the API.
           </div>
 
           <div className="row wrap mt-24" style={{ gap: 10 }}>
@@ -123,6 +133,7 @@ export function AuthPage() {
           </button>
           <button
             className={mode === 'register' ? 'filter-chip active' : 'filter-chip'}
+            disabled={config.data?.registrationMode === 'closed'}
             onClick={() => setMode('register')}
           >
             register
@@ -130,6 +141,13 @@ export function AuthPage() {
         </div>
 
         <div className="stack">
+          {config.data?.registrationMode === 'closed' && <p className="muted">Registration is currently closed.</p>}
+          {mode === 'register' && config.data?.registrationMode === 'invite' && (
+            <div className="field">
+              <label htmlFor="auth-invite">Invitation code</label>
+              <input id="auth-invite" className="input" value={inviteCode} autoComplete="off" onChange={(event) => setInviteCode(event.target.value)} />
+            </div>
+          )}
           <div className="field">
             <label htmlFor="auth-username">username</label>
             <input
@@ -141,26 +159,13 @@ export function AuthPage() {
             />
           </div>
 
-          {mode === 'register' && (
-            <div className="field">
-              <label htmlFor="auth-email">email</label>
-              <input
-                id="auth-email"
-                className="input"
-                value={email}
-                autoComplete="email"
-                onChange={(event) => setEmail(event.target.value)}
-                placeholder="cat@langwars.dev"
-              />
-            </div>
-          )}
-
           <div className="field">
             <label htmlFor="auth-password">password</label>
             <input
               id="auth-password"
               className="input"
               type="password"
+              minLength={mode === 'register' ? 12 : undefined}
               value={password}
               autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
               onChange={(event) => setPassword(event.target.value)}
@@ -198,19 +203,6 @@ export function AuthPage() {
           )}
         </div>
 
-        <div className="auth-hint">
-          <div className="row-between wrap" style={{ gap: 10 }}>
-            <span>Demo accounts (password: nyanya)</span>
-            <span className="row wrap" style={{ gap: 6 }}>
-              <button className="filter-chip" onClick={() => doLogin('neko', 'nyanya')}>
-                neko · user
-              </button>
-              <button className="filter-chip" onClick={() => doLogin('admin', 'nyanya')}>
-                admin · admin
-              </button>
-            </span>
-          </div>
-        </div>
       </Panel>
     </div>
   )

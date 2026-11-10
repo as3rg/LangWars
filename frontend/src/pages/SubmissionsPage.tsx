@@ -65,6 +65,7 @@ export function SubmissionsPage() {
         </button>
         <select
           className="select"
+          aria-label="Filter by task"
           style={{ width: 260, padding: '7px 10px' }}
           value={taskFilter}
           onChange={(event) => setTaskFilter(event.target.value)}
@@ -81,8 +82,7 @@ export function SubmissionsPage() {
       {!user && (
         <Panel className="panel-pad">
           <EmptyState title="Sign in to view the log" icon={<Lock size={22} />}>
-            The submission log is available to authenticated cats. <Link to="/auth">Sign in</Link> with
-            demo account <code className="mono">neko / nyanya</code>.
+            <Link to="/auth">Sign in</Link> to view the submission log.
           </EmptyState>
         </Panel>
       )}
@@ -144,7 +144,7 @@ export function SubmissionsPage() {
                         </td>
                         <td className="mono-cell">{submission.durationMs} ms</td>
                         <td className="mono-cell">{submission.languageVersion}</td>
-                        <td className="mono-cell dim">{canOpen ? 'open →' : 'private'}</td>
+                        <td className="mono-cell dim">{canOpen ? <button className="filter-chip" onClick={(event) => { event.stopPropagation(); setOpen(submission.id) }}>Open</button> : 'private'}</td>
                       </tr>
                     )
                   })}

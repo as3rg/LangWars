@@ -149,7 +149,7 @@ export function EmptyState({
 
 export function Loading({ label = 'summoning cats…' }: { label?: string }) {
   return (
-    <div className="loading-block">
+    <div className="loading-block" role="status">
       <span className="spinner" aria-hidden="true" />
       {label}
     </div>
@@ -157,7 +157,7 @@ export function Loading({ label = 'summoning cats…' }: { label?: string }) {
 }
 
 export function ErrorNotice({ message }: { message: string }) {
-  return <div className="error-box">{message}</div>
+  return <div className="error-box" role="alert">{message}</div>
 }
 
 export function StatTile({

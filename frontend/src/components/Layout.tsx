@@ -12,6 +12,7 @@ const NAV = [
   { to: '/tasks', label: 'Tasks' },
   { to: '/submissions', label: 'Submissions' },
   { to: '/rating', label: 'Rating' },
+  { to: '/world', label: 'World' },
 ]
 
 export function Layout() {
@@ -93,7 +94,7 @@ export function Layout() {
 
       <footer className="site-footer">
         <div className="shell footer-inner">
-          <span>LANGWARS // frontend slice · mock backend online</span>
+          <span>LANGWARS // one shared world</span>
           <span className="muted">Neko-9 says: ship it, senpai.</span>
           <span>LWLang v0.3 · build 2026.11</span>
         </div>

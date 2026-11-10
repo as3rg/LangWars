@@ -10,6 +10,7 @@ import { RatingPage } from '@/pages/RatingPage'
 import { AdminPage } from '@/pages/AdminPage'
 import { AuthPage } from '@/pages/AuthPage'
 import { NotFoundPage } from '@/pages/NotFoundPage'
+import { WorldPage } from '@/pages/WorldPage'
 
 function ScrollToTop() {
   const location = useLocation()
@@ -31,6 +32,7 @@ export default function App() {
           <Route path="tasks/:id" element={<TaskPage />} />
           <Route path="submissions" element={<SubmissionsPage />} />
           <Route path="rating" element={<RatingPage />} />
+          <Route path="world" element={<WorldPage />} />
           <Route path="admin" element={<AdminPage />} />
           <Route path="auth" element={<AuthPage />} />
           <Route path="*" element={<NotFoundPage />} />

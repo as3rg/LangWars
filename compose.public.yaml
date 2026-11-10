@@ -1,0 +1,47 @@
+# Public HTTPS ingress. Set PUBLIC_DOMAIN to a DNS name that points at this host.
+services:
+  web:
+    volumes:
+      - ./deploy/proxy-trust-public.conf:/etc/nginx/proxy-trust.conf:ro
+    networks:
+      arena: {}
+      ingress:
+        ipv4_address: 172.30.250.3
+
+  caddy:
+    image: langwars-ingress:local
+    build:
+      context: .
+      dockerfile: deploy/Caddy.Dockerfile
+    environment:
+      PUBLIC_DOMAIN: ${PUBLIC_DOMAIN:?Set PUBLIC_DOMAIN to your public domain}
+    ports:
+      - "${PUBLIC_BIND:-0.0.0.0}:${PUBLIC_HTTP_PORT:-80}:8080"
+      - "${PUBLIC_BIND:-0.0.0.0}:${PUBLIC_HTTPS_PORT:-443}:8443"
+      - "${PUBLIC_BIND:-0.0.0.0}:${PUBLIC_HTTPS_PORT:-443}:8443/udp"
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777,noexec,nosuid
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 64
+    mem_limit: 128m
+    depends_on:
+      web: {condition: service_started}
+    networks:
+      ingress:
+        ipv4_address: 172.30.250.2
+
+volumes:
+  caddy_data:
+  caddy_config:
+
+networks:
+  ingress:
+    ipam:
+      config:
+        - subnet: 172.30.250.0/29

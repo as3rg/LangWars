@@ -1,0 +1,5 @@
+# Explicitly opt in to database access through one VPN interface only.
+services:
+  db:
+    ports:
+      - "${VPN_DATABASE_BIND:?Set VPN_DATABASE_BIND to this host VPN IP}:5432:5432"

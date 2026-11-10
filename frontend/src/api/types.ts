@@ -9,7 +9,6 @@ export interface User {
   id: string
   username: string
   displayName: string
-  email?: string
   role: Role
   avatarHue: number
   rating: number
@@ -17,6 +16,9 @@ export interface User {
   streak: number
   adminNote?: string
   createdAt: string
+  banned?: boolean
+  nameLimit?: number
+  usedNames?: number
 }
 
 export interface AuthResponse {
@@ -31,7 +33,7 @@ export interface NewsItem {
   category: NewsCategory
   pinned: boolean
   accent: Accent
-  cta?: { label: string; href: string }
+  cta?: { label: string; href: string } | null
   startsAt?: string
   endsAt?: string
   createdAt: string
@@ -73,6 +75,53 @@ export interface Task extends TaskSummary {
   timeLimitMs: number
   customPages?: CustomPage[]
   ratingTable?: string
+  allowedWords?: string[] | null
+  coreOverrideLimit?: number
+}
+
+export interface PlatformSettings {
+  registrationMode: 'open' | 'invite' | 'closed'
+  defaultNameLimit: number
+  runCooldownSeconds: number
+  submitCooldownSeconds: number
+  allowedWords: string[]
+  denyWords: string[]
+  permittedOverrides: string[]
+  defaultCoreOverrideLimit: number
+  maxQueuedJobs: number
+  maxNameLength: number
+  worldVisibility: Record<'variables' | 'functions', Record<'names' | 'values', 'admin_only' | 'public'>>
+}
+
+export interface Invite {
+  id: string
+  createdAt: string
+  usedAt?: string
+  usedBy?: string
+  code?: string
+  maxUses: number
+  uses: number
+  expiresAt: string
+}
+
+export interface AdminTask extends Task {
+  tests: { input: unknown[]; expected: unknown; hidden?: boolean }[]
+}
+
+export interface Namespace {
+  version: number
+  values: Record<string, unknown>
+  functions: Record<string, unknown>
+  last?: Record<string, unknown>
+  visibility: Record<'variables' | 'functions', { names: boolean; values: boolean }>
+}
+
+export interface AuditEntry {
+  id: string
+  actorId: string
+  action: string
+  target: string
+  createdAt: string
 }
 
 export interface ApiDiagnostic {
@@ -113,6 +162,11 @@ export interface SubmissionSummary {
   durationMs: number
   testsPassed: number
   testsTotal: number
+}
+
+export interface SubmissionCursor {
+  beforeCreated: string
+  beforeId: string
 }
 
 export interface DiffHunk {

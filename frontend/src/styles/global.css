@@ -1615,6 +1615,11 @@ a.btn:hover {
   gap: 6px;
 }
 
+.field > span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .field label {
   font-family: var(--font-mono);
   font-size: 11px;
@@ -2073,6 +2078,8 @@ kbd {
     order: 3;
     width: 100%;
     flex: 1 0 100%;
+    overflow-x: auto;
+    scrollbar-width: thin;
   }
   .hero {
     padding: 28px 22px;

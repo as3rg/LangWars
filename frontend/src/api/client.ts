@@ -1,5 +1,7 @@
 import type {
   AdminSummary,
+  AdminTask,
+  AuditEntry,
   AuthResponse,
   Insights,
   NewsItem,
@@ -8,10 +10,14 @@ import type {
   RunResult,
   Submission,
   SubmissionSummary,
+  SubmissionCursor,
   SubmitResult,
   Task,
   TaskSummary,
   User,
+  PlatformSettings,
+  Invite,
+  Namespace,
 } from './types'
 
 const TOKEN_KEY = 'langwars.token'
@@ -54,7 +60,21 @@ async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
   const token = tokenStore.get()
   if (token) headers.set('Authorization', `Bearer ${token}`)
 
-  const response = await fetch(`${BASE}${path}`, { ...init, headers })
+  const controller = new AbortController()
+  const abort = () => controller.abort()
+  init.signal?.addEventListener('abort', abort, { once: true })
+  if (init.signal?.aborted) controller.abort()
+  const timeout = globalThis.setTimeout(abort, 20_000)
+  let response: Response
+  try {
+    response = await fetch(`${BASE}${path}`, { ...init, headers, signal: controller.signal })
+  } catch (cause) {
+    if (controller.signal.aborted) throw new ApiError(408, 'REQUEST_TIMEOUT', 'The server did not respond in time. Please try again.')
+    throw cause
+  } finally {
+    globalThis.clearTimeout(timeout)
+    init.signal?.removeEventListener('abort', abort)
+  }
   if (response.status === 204) return undefined as T
 
   const isJson = response.headers.get('content-type')?.includes('application/json')
@@ -71,6 +91,22 @@ async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
   return payload as T
 }
 
+type JobResponse<T> = { status: 'queued' | 'running' | 'completed' | 'failed'; result?: T; error?: { code: string; message: string } }
+
+async function executeJob<T>(path: string, body: unknown): Promise<T> {
+  const token = tokenStore.get()
+  const accepted = await apiFetch<{ jobId: string }>(path, jsonBody(body))
+  const deadline = Date.now() + 15 * 60_000
+  for (;;) {
+    await new Promise((resolve) => globalThis.setTimeout(resolve, 900))
+    if (!token || tokenStore.get() !== token) throw new ApiError(401, 'SESSION_CHANGED', 'Your session changed. Sign in to check your submissions.')
+    const job = await apiFetch<JobResponse<T>>(`/jobs/${encodeURIComponent(accepted.jobId)}`)
+    if (job.status === 'completed' && job.result !== undefined) return job.result
+    if (job.status === 'failed') throw new ApiError(422, job.error?.code ?? 'JOB_FAILED', job.error?.message ?? 'Execution failed')
+    if (Date.now() > deadline) throw new ApiError(408, 'JOB_TIMEOUT', 'The worker is taking longer than expected. Check submissions before retrying.')
+  }
+}
+
 function jsonBody(body: unknown): RequestInit {
   return { method: 'POST', body: JSON.stringify(body) }
 }
@@ -78,8 +114,9 @@ function jsonBody(body: unknown): RequestInit {
 export const api = {
   login: (username: string, password: string) =>
     apiFetch<AuthResponse>('/auth/login', jsonBody({ username, password })),
-  register: (username: string, email: string, password: string) =>
-    apiFetch<AuthResponse>('/auth/register', jsonBody({ username, email, password })),
+  register: (username: string, password: string, inviteCode?: string) =>
+    apiFetch<AuthResponse>('/auth/register', jsonBody({ username, password, inviteCode })),
+  config: () => apiFetch<Pick<PlatformSettings, 'registrationMode' | 'runCooldownSeconds' | 'submitCooldownSeconds' | 'allowedWords' | 'maxNameLength'>>('/config'),
   logout: () => apiFetch<void>('/auth/logout', { method: 'POST' }),
   me: () => apiFetch<User>('/me'),
 
@@ -89,9 +126,9 @@ export const api = {
   tasks: () => apiFetch<TaskSummary[]>('/tasks'),
   task: (id: string) => apiFetch<Task>(`/tasks/${id}`),
   run: (taskId: string, code: string, languageVersion: string) =>
-    apiFetch<RunResult>(`/tasks/${taskId}/run`, jsonBody({ code, languageVersion })),
+    executeJob<RunResult>(`/tasks/${taskId}/run`, { code, languageVersion }),
   submit: (taskId: string, code: string, languageVersion: string) =>
-    apiFetch<SubmitResult>(`/tasks/${taskId}/submit`, jsonBody({ code, languageVersion })),
+    executeJob<SubmitResult>(`/tasks/${taskId}/submit`, { code, languageVersion }),
   taskSubmissions: (taskId: string, scope: 'mine' | 'all' = 'mine') =>
     apiFetch<SubmissionSummary[]>(`/tasks/${taskId}/submissions?scope=${scope}`),
   insights: (taskId: string) => apiFetch<Insights>(`/tasks/${taskId}/insights`),
@@ -111,12 +148,33 @@ export const api = {
 
   adminSummary: () => apiFetch<AdminSummary>('/admin/summary'),
   adminUsers: () => apiFetch<User[]>('/admin/users'),
-  updateUser: (id: string, patch: Partial<Pick<User, 'role' | 'adminNote'>>) =>
+  updateUser: (id: string, patch: Partial<Pick<User, 'role' | 'adminNote' | 'banned' | 'nameLimit'>>) =>
     apiFetch<User>(`/admin/users/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
   createNews: (item: Partial<NewsItem>) =>
     apiFetch<NewsItem>('/admin/news', jsonBody(item)),
   updateNews: (id: string, patch: Partial<NewsItem>) =>
     apiFetch<NewsItem>(`/admin/news/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
   deleteNews: (id: string) => apiFetch<void>(`/admin/news/${id}`, { method: 'DELETE' }),
-  resetMock: () => apiFetch<void>('/admin/reset', { method: 'POST' }),
+  deleteUser: (id: string) => apiFetch<void>(`/admin/users/${id}`, { method: 'DELETE' }),
+  resetPassword: (id: string, password: string) => apiFetch<void>(`/admin/users/${id}/password`, jsonBody({ password })),
+  adminSettings: () => apiFetch<PlatformSettings>('/admin/settings'),
+  saveSettings: (settings: PlatformSettings) => apiFetch<PlatformSettings>('/admin/settings', { method: 'PATCH', body: JSON.stringify(settings) }),
+  invites: () => apiFetch<Invite[]>('/admin/invites'),
+  createInvite: (options: { maxUses: number; expiresInHours: number } = { maxUses: 1, expiresInHours: 24 }) => apiFetch<Invite>('/admin/invites', jsonBody(options)),
+  deleteInvite: (id: string) => apiFetch<void>(`/admin/invites/${id}`, { method: 'DELETE' }),
+  restoreOverrides: (operations?: string[]) => executeJob<{ restored: string[]; version: number }>('/admin/overrides/restore', { operations }),
+  adminTasks: () => apiFetch<AdminTask[]>('/admin/tasks'),
+  createTask: (task: Partial<AdminTask>) => apiFetch<AdminTask>('/admin/tasks', jsonBody(task)),
+  updateTask: (id: string, task: Partial<AdminTask>) => apiFetch<AdminTask>(`/admin/tasks/${id}`, { method: 'PATCH', body: JSON.stringify(task) }),
+  deleteTask: (id: string) => apiFetch<void>(`/admin/tasks/${id}`, { method: 'DELETE' }),
+  namespace: () => apiFetch<Namespace>('/namespace'),
+  adminSubmissions: (cursor?: SubmissionCursor) => {
+    const search = new URLSearchParams({ limit: '100' })
+    if (cursor) {
+      search.set('beforeCreated', cursor.beforeCreated)
+      search.set('beforeId', cursor.beforeId)
+    }
+    return apiFetch<SubmissionSummary[]>(`/admin/submissions?${search}`)
+  },
+  audit: () => apiFetch<AuditEntry[]>('/admin/audit'),
 }

@@ -1,5 +1,5 @@
 {
-  description = "LangWars frontend — LWLang arena (React + Vite + CodeMirror, MSW mock backend)";
+  description = "LangWars — shared-state LWLang programming arena";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -26,7 +26,7 @@
         );
 
       frontendVersion = "0.1.0";
-      npmDepsHash = "sha256-Gr8CnU0dFLwDsIRlTjCZTwl5PCH/WGiNm2c1MdcFOAM=";
+      npmDepsHash = "sha256-4+BVAff192ZJ49Kq92lf12SicTh8jG/Ns0a7y9pIL4c=";
 
       frontendSrc = nixpkgs.lib.cleanSourceWith {
         src = ./frontend;
@@ -37,6 +37,7 @@
           in
           !(builtins.elem base [
             "node_modules"
+            ".npm-cache"
             "dist"
             ".git"
             "result"
@@ -103,22 +104,14 @@
         { pkgs, ... }:
         {
           default = pkgs.mkShell {
-            name = "langwars-frontend";
-            packages = [ pkgs.nodejs_22 ];
+            name = "langwars";
+            packages = [ pkgs.nodejs_22 pkgs.python313 pkgs.postgresql_17 ];
 
             shellHook = ''
-              # Enter the app directory whether the shell was started at the repo root
-              # or inside frontend/.
-              if [ -d frontend ] && [ -f frontend/package.json ]; then
-                cd frontend
-              fi
-              echo "LangWars frontend dev shell — Node $(node --version), npm $(npm --version)"
+              echo "LangWars dev shell — Node $(node --version), Python $(python --version)"
               echo "cwd: $PWD"
-              echo "Commands: npm run dev | npm test | npm run build"
-              if [ -f package.json ] && [ ! -d node_modules ]; then
-                echo "node_modules missing — running npm ci"
-                npm ci
-              fi
+              echo "Frontend: npm --prefix frontend ci; npm --prefix frontend run dev"
+              echo "Server setup and worker commands: see README.md"
             '';
           };
         }

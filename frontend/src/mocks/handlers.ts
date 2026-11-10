@@ -100,9 +100,8 @@ export const handlers = [
 
   http.post('/api/auth/register', async ({ request }) => {
     await latency()
-    const body = await readJson<{ username?: string; email?: string; password?: string }>(request)
+    const body = await readJson<{ username?: string; password?: string }>(request)
     const username = (body.username ?? '').trim()
-    const email = (body.email ?? '').trim()
     const password = body.password ?? ''
     if (username.length < 3 || username.length > 24) {
       return fail(400, 'BAD_USERNAME', 'Username must be 3-24 characters')
@@ -110,8 +109,7 @@ export const handlers = [
     if (!/^[a-zA-Z0-9_]+$/.test(username)) {
       return fail(400, 'BAD_USERNAME', 'Username may contain letters, digits and underscore')
     }
-    if (!/^\S+@\S+\.\S+$/.test(email)) return fail(400, 'BAD_EMAIL', 'Email looks invalid')
-    if (password.length < 6) return fail(400, 'BAD_PASSWORD', 'Password must be at least 6 characters')
+    if (password.length < 12) return fail(400, 'BAD_PASSWORD', 'Password must be at least 12 characters')
 
     const database = getDb()
     if (database.users.some((candidate) => candidate.username.toLowerCase() === username.toLowerCase())) {
@@ -122,7 +120,6 @@ export const handlers = [
       id: `usr_${Date.now().toString(36)}`,
       username,
       displayName: username,
-      email,
       role: 'user',
       avatarHue: Math.round(Math.random() * 360),
       rating: 1200,

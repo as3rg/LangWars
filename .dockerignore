@@ -1,0 +1,15 @@
+.git
+.env
+.env.*
+!.env.example
+**/node_modules
+**/.npm-cache
+**/dist
+**/__pycache__
+**/.pytest_cache
+**/*.pyc
+**/*.db
+**/*.sqlite*
+.venv
+.artifacts
+docs

@@ -1,0 +1,22 @@
+# Run on additional VPN hosts after building/pulling the same server image.
+name: langwars-workers
+services:
+  worker:
+    image: ${SERVER_IMAGE:-langwars-server:local}
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: [python, -m, server.worker]
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL to the database VPN address}
+      WORKER_MEMORY_MB: ${WORKER_MEMORY_MB:-256}
+      WORKER_TIMEOUT_SECONDS: ${WORKER_TIMEOUT_SECONDS:-20}
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777,noexec,nosuid
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 64
+    mem_limit: 384m
+    cpus: 1.0

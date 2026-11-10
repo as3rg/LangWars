@@ -22,7 +22,7 @@
 ## Entities
 
 ### User
-`id, username, displayName, email?, role, avatarHue, rating, solvedCount, streak, adminNote?, createdAt`
+`id, username, displayName, role, avatarHue, rating, solvedCount, streak, adminNote?, createdAt`
 
 ### NewsItem
 `id, title, body (markdown-lite), category: event|update|maintenance|holiday, pinned, accent: cyan|magenta|violet|amber, cta?: {label, href}, createdAt, startsAt?, endsAt?`
@@ -51,7 +51,7 @@ Detail adds: `code, diagnostics[], tests[], stdout?, previousId?`
 | Method | Path | Auth | Notes |
 | --- | --- | --- | --- |
 | POST | `/auth/login` | – | `{username,password}` → `{token,user}`; demo: `neko/nyanya`, `admin/nyanya` |
-| POST | `/auth/register` | – | `{username,email,password}`; 409 on duplicate |
+| POST | `/auth/register` | – | `{username,password,inviteCode?}`; 409 on duplicate |
 | POST | `/auth/logout` | user | invalidate token |
 | GET | `/me` | user | current user |
 | PATCH | `/me` | user | `displayName?`, `avatarHue?` |

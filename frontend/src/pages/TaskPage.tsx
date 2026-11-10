@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import clsx from 'clsx'
 import {
@@ -12,9 +12,10 @@ import {
 import type { RunResult, SubmitResult, SubmissionSummary, Task } from '@/api/types'
 import { useRun, useSession, useSubmit, useTask, useTaskSubmissions } from '@/api/hooks'
 import { ApiError } from '@/api/client'
-import { analyze, isLangVersion, LATEST_VERSION, type LangVersion } from '@/lwlang'
+import { isLangVersion, LATEST_VERSION, type LangVersion } from '@/lwlang'
 import { LwEditor } from '@/editor/LwEditor'
 import { Markdown } from '@/components/Markdown'
+import { LanguageGuide } from '@/components/LanguageGuide'
 import { CatMascot } from '@/components/CatMascot'
 import { RatingTablePanel } from '@/components/RatingTablePanel'
 import { SubmissionModal } from '@/components/SubmissionModal'
@@ -44,12 +45,13 @@ function messageOf(error: unknown): string {
 export function TaskPage() {
   const { id } = useParams()
   const query = useTask(id)
+  const { user } = useSession()
 
   if (query.isLoading) return <Loading label="opening task…" />
   if (query.error) return <ErrorNotice message="Could not load this task." />
   if (!query.data) return null
 
-  return <TaskWorkspace key={query.data.id} task={query.data} />
+  return <TaskWorkspace key={`${query.data.id}:${user?.id ?? 'guest'}`} task={query.data} />
 }
 
 type TabId = 'mine' | 'all' | 'rating' | string
@@ -57,7 +59,7 @@ type TabId = 'mine' | 'all' | 'rating' | string
 function TaskWorkspace({ task }: { task: Task }) {
   const { user, isAdmin } = useSession()
   const version: LangVersion = isLangVersion(task.languageVersion) ? task.languageVersion : LATEST_VERSION
-  const storageKey = `langwars.code.${task.id}`
+  const storageKey = `langwars.code.v2.${user?.id ?? 'guest'}.${task.id}`
 
   const [code, setCode] = useState(() => {
     try {
@@ -71,10 +73,8 @@ function TaskWorkspace({ task }: { task: Task }) {
   const [verdict, setVerdict] = useState<SubmitResult | null>(null)
   const [openSubmission, setOpenSubmission] = useState<string | null>(null)
 
-  const analysis = useMemo(
-    () => analyze(code, version, task.addonPacks),
-    [code, version, task.addonPacks],
-  )
+  const [checked, setChecked] = useState<{ code: string; diagnostics: NonNullable<RunResult['diagnostics']> }>({ code: '', diagnostics: [] })
+  const diagnostics = checked.code === code ? checked.diagnostics : []
 
   const run = useRun(task.id)
   const submit = useSubmit(task.id)
@@ -96,6 +96,7 @@ function TaskWorkspace({ task }: { task: Task }) {
       {
         onSuccess: (result) => {
           setRunResult(result)
+          setChecked({ code, diagnostics: result.diagnostics ?? [] })
           toast(result.status === 'OK' ? 'success' : 'info', `Sample run: ${result.status}`)
         },
         onError: (error) => toast('error', messageOf(error)),
@@ -110,6 +111,7 @@ function TaskWorkspace({ task }: { task: Task }) {
       {
         onSuccess: (result) => {
           setVerdict(result)
+          setChecked({ code, diagnostics: result.submission.diagnostics ?? [] })
           toast(
             result.submission.status === 'OK' ? 'success' : 'error',
             result.submission.status === 'OK'
@@ -207,30 +209,18 @@ function TaskWorkspace({ task }: { task: Task }) {
             ))}
           </ul>
 
-          <div className="notice mt-16">
-            <strong className="mono" style={{ fontSize: 12 }}>
-              <Sparkles size={12} style={{ verticalAlign: '-1px' }} /> editor addons
-            </strong>
-            <div className="stack" style={{ gap: 6, marginTop: 8 }}>
-              {analysis.packs.map((pack) => (
-                <div key={pack.id} className="mono" style={{ fontSize: 11.5 }}>
-                  <span className="badge badge-violet">{pack.id}</span> {pack.title} —{' '}
-                  <span className="dim">{pack.description}</span>
-                </div>
-              ))}
-            </div>
-            <div className="dim mono" style={{ fontSize: 10.5, marginTop: 8 }}>
-              Syntax highlight &amp; formatter are mocked; diagnostics are produced by source and AST
-              passes. Time limit {task.timeLimitMs} ms.
-            </div>
-          </div>
+          <p className="muted" style={{ marginTop: 20 }}>Run checks the examples. Submit checks all tests and publishes changes when accepted. Time limit: {task.timeLimitMs} ms.</p>
+          <p className="muted">Use exactly one <code>@solution</code> function. Names and parameters are global; another player can change them later.</p>
+          {task.coreOverrideLimit !== undefined && <p className="mono dim">Up to {task.coreOverrideLimit} core overrides.</p>}
+          <Link to="/world">Explore shared names and available words →</Link>
+          <LanguageGuide />
+          {task.allowedWords?.length ? <details style={{ marginTop: 12 }}><summary>Words for this task</summary><p className="mono muted">{task.allowedWords.join(', ')}</p></details> : null}
         </Panel>
 
         <div className="workspace">
           {!user && (
             <div className="notice">
-              <strong>Sign in to run and submit.</strong> Demo account:{' '}
-              <Link to="/auth">neko / nyanya</Link>. The judge is mocked, but it still keeps score.
+              <Link to="/auth">Sign in</Link> to run code and publish a solution.
             </div>
           )}
 
@@ -239,12 +229,14 @@ function TaskWorkspace({ task }: { task: Task }) {
             onChange={setCode}
             version={version}
             addonPacks={task.addonPacks}
-            diagnostics={analysis.diagnostics}
+            diagnostics={diagnostics}
             onRun={user ? handleRun : undefined}
             onSubmit={user ? handleSubmit : undefined}
             running={run.isPending}
             submitting={submit.isPending}
           />
+
+          {(run.isPending || submit.isPending) && <div className="notice" role="status">{submit.isPending ? 'Submission queued or running. Changes publish only after every check passes.' : 'Run queued or running…'}</div>}
 
           {runResult && (
             <Panel className="panel-pad">
@@ -252,7 +244,7 @@ function TaskWorkspace({ task }: { task: Task }) {
                 <div className="row" style={{ gap: 10 }}>
                   <StatusPill status={runResult.status} />
                   <span className="mono dim" style={{ fontSize: 11.5 }}>
-                    mock runner · example tests only
+                    example tests
                   </span>
                 </div>
                 <button className="mono dim" style={{ background: 'none', border: 'none', cursor: 'pointer' }} onClick={() => setRunResult(null)}>
@@ -265,6 +257,7 @@ function TaskWorkspace({ task }: { task: Task }) {
                     <span className={`status-dot ${test.passed ? 'ok' : 'bad'}`} />
                     <span className="name">{test.name}</span>
                     <span className="mono dim">{test.input}</span>
+                    {!test.passed && <span className="mono">expected {test.expected}; got {test.actual ?? 'no result'}</span>}
                     <span style={{ marginLeft: 'auto' }}>{test.passed ? 'passed' : 'failed'}</span>
                   </div>
                 ))}
@@ -378,7 +371,7 @@ function TaskWorkspace({ task }: { task: Task }) {
                 />
               ) : (
                 <EmptyState title="Sign in to see your submissions">
-                  <Link to="/auth">Log in as neko / nyanya</Link>
+                  <Link to="/auth">Sign in</Link>
                 </EmptyState>
               ))}
 
@@ -476,7 +469,7 @@ function TaskSubmissions({
                 </td>
                 <td className="mono-cell">{submission.durationMs} ms</td>
                 <td className="mono-cell">{submission.languageVersion}</td>
-                <td className="mono-cell dim">{canOpen ? 'open →' : 'private'}</td>
+                <td className="mono-cell dim">{canOpen ? <button className="filter-chip" onClick={(event) => { event.stopPropagation(); onOpen(submission.id) }}>Open</button> : 'private'}</td>
               </tr>
             )
           })}

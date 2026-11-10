@@ -16,7 +16,18 @@ const queryClient = new QueryClient({
 })
 
 async function enableMocking() {
-  if (import.meta.env.VITE_USE_MOCK === 'false') return
+  if (import.meta.env.VITE_USE_MOCK !== 'true') {
+    // Remove a mock worker left over from an earlier frontend demo.
+    if ('serviceWorker' in navigator) {
+      try {
+        const registrations = await navigator.serviceWorker.getRegistrations()
+        await Promise.all(registrations.filter((registration) => registration.active?.scriptURL.endsWith('/mockServiceWorker.js')).map((registration) => registration.unregister()))
+      } catch {
+        // Service workers may be unavailable on a plain HTTP development host.
+      }
+    }
+    return
+  }
   try {
     const { worker } = await import('./mocks/browser')
     await worker.start({

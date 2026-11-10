@@ -31,7 +31,6 @@ import { Bug, Check, ChevronDown, ChevronUp, Play, Send, Wand2 } from 'lucide-re
 import type { Diagnostic, LangVersion } from '@/lwlang'
 import { countBySeverity } from '@/lwlang'
 import { formatLwlang } from '@/lib/format'
-import { plural } from '@/lib/plural'
 import { createCompletions, createLwlangLanguage } from './language'
 import { lwEditorExtensions } from './theme'
 import { DiagnosticList } from '@/components/DiagnosticList'
@@ -166,10 +165,9 @@ export function LwEditor({
     if (!view) return
     const formatted = formatLwlang(view.state.doc.toString())
     view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: formatted } })
-    toast('info', 'MOCK formatter: normalized indentation and whitespace.')
+    toast('info', 'Indentation and whitespace formatted.')
   }
 
-  const hasErrors = counts.error > 0
 
   return (
     <div className="editor-shell">
@@ -180,14 +178,8 @@ export function LwEditor({
           <span className="editor-dot green" />
         </span>
         <span className="badge badge-cyan">{version}</span>
-        <span className="badge badge-violet" title={`Active addons: ${addonPacks.join(', ')}`}>
-          {plural(addonPacks.length, 'addon')}
-        </span>
-        <span className="mono dim" style={{ fontSize: 11 }} title="Mock judge / mock formatter">
-          mock
-        </span>
         <span className="spacer" />
-        <GlowButton size="sm" onClick={format} icon={<Wand2 size={13} />} title="Mock formatter">
+        <GlowButton size="sm" onClick={format} icon={<Wand2 size={13} />} title="Format indentation">
           Format
         </GlowButton>
         {onRun && (
@@ -208,8 +200,8 @@ export function LwEditor({
             onClick={onSubmit}
             loading={submitting}
             icon={<Send size={13} />}
-            disabled={running || hasErrors}
-            title={hasErrors ? 'Fix errors before submitting' : 'Submit solution'}
+            disabled={running}
+            title="Submit solution"
           >
             Submit
           </GlowButton>
@@ -227,7 +219,7 @@ export function LwEditor({
         <span className="spacer" />
         <span>LWLang {version}</span>
         <span>UTF-8</span>
-        <span>addons: {addonPacks.join(' + ')}</span>
+        <span>shared state</span>
       </div>
 
       <div className="problems-panel">
