@@ -1,0 +1,744 @@
+openapi: 3.1.0
+info:
+  title: LangWars API
+  version: 0.1.0
+  description: |
+    Integration surface required by the LangWars frontend. This is NOT the complete
+    backend specification: it describes only what the current UI calls and consumes.
+    The backend team must design persistence, the judge sandbox, security, scaling and
+    any behaviour not listed here. See docs/backend-requirements.md for the handoff and
+    docs/api.md for semantics.
+servers:
+  - url: /api
+    description: Same-origin API
+security:
+  - bearerAuth: []
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    TaskId:
+      name: taskId
+      in: path
+      required: true
+      schema: { type: string }
+    SubmissionId:
+      name: submissionId
+      in: path
+      required: true
+      schema: { type: string }
+    NewsId:
+      name: newsId
+      in: path
+      required: true
+      schema: { type: string }
+    TableId:
+      name: table
+      in: query
+      required: false
+      schema: { type: string, default: global }
+  responses:
+    Unauthorized:
+      description: Missing or invalid token
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Forbidden:
+      description: Insufficient role
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: { type: string, example: NOT_FOUND }
+            message: { type: string }
+            details: {}
+    Role:
+      type: string
+      enum: [user, admin]
+    User:
+      type: object
+      required: [id, username, displayName, role, rating, solvedCount, streak, createdAt]
+      properties:
+        id: { type: string }
+        username: { type: string }
+        displayName: { type: string }
+        email: { type: string, format: email }
+        role: { $ref: '#/components/schemas/Role' }
+        avatarHue: { type: integer, minimum: 0, maximum: 360 }
+        rating: { type: integer }
+        solvedCount: { type: integer }
+        streak: { type: integer }
+        adminNote: { type: string }
+        createdAt: { type: string, format: date-time }
+    AuthResponse:
+      type: object
+      required: [token, user]
+      properties:
+        token: { type: string }
+        user: { $ref: '#/components/schemas/User' }
+    LoginRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username: { type: string }
+        password: { type: string, format: password }
+    RegisterRequest:
+      type: object
+      required: [username, email, password]
+      properties:
+        username: { type: string, minLength: 3, maxLength: 24 }
+        email: { type: string, format: email }
+        password: { type: string, format: password, minLength: 6 }
+    NewsCategory:
+      type: string
+      enum: [event, update, maintenance, holiday]
+    NewsItem:
+      type: object
+      required: [id, title, body, category, pinned, accent, createdAt]
+      properties:
+        id: { type: string }
+        title: { type: string }
+        body: { type: string, description: Markdown-lite }
+        category: { $ref: '#/components/schemas/NewsCategory' }
+        pinned: { type: boolean }
+        accent:
+          type: string
+          enum: [cyan, magenta, violet, amber]
+        cta:
+          type: object
+          properties:
+            label: { type: string }
+            href: { type: string }
+        startsAt: { type: string, format: date-time }
+        endsAt: { type: string, format: date-time }
+        createdAt: { type: string, format: date-time }
+    Difficulty:
+      type: string
+      enum: [easy, medium, hard, nightmare]
+    CustomPage:
+      type: object
+      required: [id, title, kind]
+      properties:
+        id: { type: string }
+        title: { type: string }
+        kind: { type: string, description: Frontend registry key, e.g. stats }
+        config: { type: object, additionalProperties: true }
+    TaskSummary:
+      type: object
+      required: [id, slug, title, difficulty, tags, score, solvedBy, languageVersion, addonPacks]
+      properties:
+        id: { type: string }
+        slug: { type: string }
+        title: { type: string }
+        difficulty: { $ref: '#/components/schemas/Difficulty' }
+        tags:
+          type: array
+          items: { type: string }
+        score: { type: integer }
+        solvedBy: { type: integer }
+        languageVersion: { type: string, example: v0.3 }
+        addonPacks:
+          type: array
+          items: { type: string }
+        solved: { type: boolean }
+        attempted: { type: boolean }
+    Task:
+      allOf:
+        - $ref: '#/components/schemas/TaskSummary'
+        - type: object
+          required: [statement, constraints, examples, starterCode, entryPoint, timeLimitMs]
+          properties:
+            statement: { type: string, description: Markdown-lite }
+            constraints:
+              type: array
+              items: { type: string }
+            examples:
+              type: array
+              items:
+                type: object
+                required: [input, output]
+                properties:
+                  input: { type: string }
+                  output: { type: string }
+                  explanation: { type: string }
+            starterCode: { type: string }
+            entryPoint: { type: string }
+            timeLimitMs: { type: integer }
+            customPages:
+              type: array
+              items: { $ref: '#/components/schemas/CustomPage' }
+            ratingTable: { type: string }
+    VerdictStatus:
+      type: string
+      enum: [OK, FAIL, WRONG_ANSWER, TLE, CE]
+    Diagnostic:
+      type: object
+      required: [severity, message, code, addonId, from, to]
+      properties:
+        severity: { type: string, enum: [error, warning, info] }
+        message: { type: string }
+        code: { type: string }
+        addonId: { type: string }
+        from: { type: integer }
+        to: { type: integer }
+    TestResult:
+      type: object
+      required: [name, input, expected, passed]
+      properties:
+        name: { type: string }
+        input: { type: string }
+        expected: { type: string }
+        actual: { type: string }
+        passed: { type: boolean }
+        durationMs: { type: number }
+    RunResult:
+      type: object
+      required: [status, tests, stdout]
+      properties:
+        status: { $ref: '#/components/schemas/VerdictStatus' }
+        tests:
+          type: array
+          items: { $ref: '#/components/schemas/TestResult' }
+        stdout: { type: string }
+        diagnostics:
+          type: array
+          items: { $ref: '#/components/schemas/Diagnostic' }
+    SubmissionSummary:
+      type: object
+      required: [id, taskId, taskTitle, userId, username, status, score, languageVersion, createdAt, durationMs, testsPassed, testsTotal]
+      properties:
+        id: { type: string }
+        taskId: { type: string }
+        taskTitle: { type: string }
+        userId: { type: string }
+        username: { type: string }
+        status: { $ref: '#/components/schemas/VerdictStatus' }
+        score: { type: integer }
+        languageVersion: { type: string }
+        createdAt: { type: string, format: date-time }
+        durationMs: { type: integer }
+        testsPassed: { type: integer }
+        testsTotal: { type: integer }
+    DiffHunk:
+      type: object
+      required: [type, text]
+      properties:
+        type: { type: string, enum: [add, del, ctx] }
+        oldLine: { type: integer }
+        newLine: { type: integer }
+        text: { type: string }
+    Submission:
+      allOf:
+        - $ref: '#/components/schemas/SubmissionSummary'
+        - type: object
+          required: [code, diagnostics, tests, diff]
+          properties:
+            code: { type: string }
+            diagnostics:
+              type: array
+              items: { $ref: '#/components/schemas/Diagnostic' }
+            tests:
+              type: array
+              items: { $ref: '#/components/schemas/TestResult' }
+            stdout: { type: string }
+            previousId: { type: string }
+            previousCode: { type: string }
+            diff:
+              type: object
+              required: [unified, hunks]
+              properties:
+                previousId: { type: string }
+                unified: { type: string }
+                hunks:
+                  type: array
+                  items: { $ref: '#/components/schemas/DiffHunk' }
+    RatingColumn:
+      type: object
+      required: [key, label]
+      properties:
+        key: { type: string }
+        label: { type: string }
+        align: { type: string, enum: [left, right, center] }
+    RatingTableDescriptor:
+      type: object
+      required: [id, title, columns]
+      properties:
+        id: { type: string }
+        title: { type: string }
+        description: { type: string }
+        columns:
+          type: array
+          items: { $ref: '#/components/schemas/RatingColumn' }
+        highlightUserId: { type: string }
+    RatingRow:
+      type: object
+      required: [rank, userId, username, score, solved, extra]
+      properties:
+        rank: { type: integer }
+        userId: { type: string }
+        username: { type: string }
+        score: { type: integer }
+        solved: { type: integer }
+        delta: { type: integer, description: Rank/score delta since user's last submission }
+        extra:
+          type: object
+          additionalProperties:
+            oneOf: [{ type: string }, { type: number }]
+    RatingTable:
+      type: object
+      required: [descriptor, rows]
+      properties:
+        descriptor: { $ref: '#/components/schemas/RatingTableDescriptor' }
+        rows:
+          type: array
+          items: { $ref: '#/components/schemas/RatingRow' }
+        me: { $ref: '#/components/schemas/RatingRow' }
+    RatingUpdate:
+      type: object
+      required: [tableId, delta, newScore, rank, rankBefore]
+      properties:
+        tableId: { type: string }
+        delta: { type: integer }
+        newScore: { type: integer }
+        rank: { type: integer }
+        rankBefore: { type: integer }
+    SubmitResult:
+      type: object
+      required: [submission, ratingUpdate]
+      properties:
+        submission: { $ref: '#/components/schemas/Submission' }
+        ratingUpdate: { $ref: '#/components/schemas/RatingUpdate' }
+    RunRequest:
+      type: object
+      required: [code, languageVersion]
+      properties:
+        code: { type: string, maxLength: 65536 }
+        languageVersion: { type: string, example: v0.3 }
+    SubmitRequest:
+      allOf:
+        - $ref: '#/components/schemas/RunRequest'
+    Insights:
+      type: object
+      required: [kind, data]
+      properties:
+        kind: { type: string }
+        data: { type: object, additionalProperties: true }
+    AdminSummary:
+      type: object
+      properties:
+        users: { type: integer }
+        tasks: { type: integer }
+        submissions: { type: integer }
+        news: { type: integer }
+        pendingReports: { type: integer }
+        recent:
+          type: array
+          items: { $ref: '#/components/schemas/SubmissionSummary' }
+paths:
+  /health:
+    get:
+      summary: Liveness probe
+      security: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: ok }
+                  mock: { type: boolean }
+  /auth/login:
+    post:
+      summary: Login
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginRequest' }
+      responses:
+        '200':
+          description: Authenticated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /auth/register:
+    post:
+      summary: Register
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RegisterRequest' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthResponse' }
+        '409':
+          description: Username taken
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+  /auth/logout:
+    post:
+      summary: Logout
+      responses:
+        '204': { description: Logged out }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /me:
+    get:
+      summary: Current user
+      responses:
+        '200':
+          description: Current user
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    patch:
+      summary: Update profile
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                displayName: { type: string }
+                avatarHue: { type: integer, minimum: 0, maximum: 360 }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /news:
+    get:
+      summary: News feed
+      security: []
+      responses:
+        '200':
+          description: Pinned first, then newest
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/NewsItem' }
+  /news/{newsId}:
+    get:
+      summary: News item
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/NewsId'
+      responses:
+        '200':
+          description: News item
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/NewsItem' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /tasks:
+    get:
+      summary: List tasks
+      security: [{ bearerAuth: [] }, {}]
+      responses:
+        '200':
+          description: Tasks
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/TaskSummary' }
+  /tasks/{taskId}:
+    get:
+      summary: Task detail
+      security: [{ bearerAuth: [] }, {}]
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+      responses:
+        '200':
+          description: Task
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Task' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /tasks/{taskId}/run:
+    post:
+      summary: Run code against example tests
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RunRequest' }
+      responses:
+        '200':
+          description: Dry-run result
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RunResult' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422':
+          description: Validation error (body too large, unknown version)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+  /tasks/{taskId}/submit:
+    post:
+      summary: Submit solution
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SubmitRequest' }
+      responses:
+        '201':
+          description: Judged
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SubmitResult' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429':
+          description: Rate limited
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+  /tasks/{taskId}/submissions:
+    get:
+      summary: Submission log for a task (no code)
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+        - name: scope
+          in: query
+          schema: { type: string, enum: [mine, all], default: mine }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 50, maximum: 200 }
+      responses:
+        '200':
+          description: Submissions
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/SubmissionSummary' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /tasks/{taskId}/insights:
+    get:
+      summary: Custom-page data for a task
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+      responses:
+        '200':
+          description: Insights payload
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Insights' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /submissions:
+    get:
+      summary: Global submission log (no code)
+      parameters:
+        - name: taskId
+          in: query
+          schema: { type: string }
+        - name: userId
+          in: query
+          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 50, maximum: 200 }
+      responses:
+        '200':
+          description: Submissions
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/SubmissionSummary' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /submissions/{submissionId}:
+    get:
+      summary: Submission detail with code and diff
+      parameters:
+        - $ref: '#/components/parameters/SubmissionId'
+      responses:
+        '200':
+          description: Submission detail
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Submission' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /rating/tables:
+    get:
+      summary: Available rating tables
+      security: [{ bearerAuth: [] }, {}]
+      responses:
+        '200':
+          description: Table descriptors
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/RatingTableDescriptor' }
+  /rating:
+    get:
+      summary: Rating table rows
+      security: [{ bearerAuth: [] }, {}]
+      parameters:
+        - $ref: '#/components/parameters/TableId'
+      responses:
+        '200':
+          description: Rating table
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RatingTable' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /admin/summary:
+    get:
+      summary: Admin dashboard summary
+      responses:
+        '200':
+          description: Summary
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminSummary' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /admin/users:
+    get:
+      summary: List users (admin)
+      responses:
+        '200':
+          description: Users
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/User' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /admin/users/{userId}:
+    patch:
+      summary: Update user role/note (admin)
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                role: { $ref: '#/components/schemas/Role' }
+                adminNote: { type: string }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /admin/news:
+    post:
+      summary: Create news (admin)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/NewsItem' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/NewsItem' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /admin/news/{newsId}:
+    patch:
+      summary: Update news (admin)
+      parameters:
+        - $ref: '#/components/parameters/NewsId'
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/NewsItem' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/NewsItem' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    delete:
+      summary: Delete news (admin)
+      parameters:
+        - $ref: '#/components/parameters/NewsId'
+      responses:
+        '204': { description: Deleted }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /admin/tasks:
+    post:
+      summary: Create task (admin)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Task' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Task' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /admin/tasks/{taskId}:
+    patch:
+      summary: Update task (admin)
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Task' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Task' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    delete:
+      summary: Delete task (admin)
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+      responses:
+        '204': { description: Deleted }
+        '403': { $ref: '#/components/responses/Forbidden' }
