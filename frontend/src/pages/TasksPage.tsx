@@ -50,7 +50,7 @@ export function TasksPage() {
             <Target size={20} color="var(--cyan)" /> Tasks
           </h2>
           <div className="section-sub">
-            Every task can extend the language. Addons are listed on the task page.
+            Solve a problem, publish your definitions, and defend your place in the shared world.
           </div>
         </div>
         <div className="row wrap" style={{ gap: 8 }}>
@@ -132,7 +132,7 @@ export function TasksPage() {
               </span>
               <span className="row" style={{ gap: 6 }}>
                 <span className="badge badge-violet">{task.languageVersion}</span>
-                <span className="badge">{plural(task.addonPacks.length, 'addon')}</span>
+                <span className="badge">shared globals</span>
               </span>
             </div>
           </Link>

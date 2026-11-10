@@ -9,3 +9,16 @@
 # Nix build artifacts
 result
 result-*
+
+# Runtime data and local credentials
+.env
+.env.*
+!.env.example
+.venv/
+**/__pycache__/
+**/.pytest_cache/
+**/*.pyc
+**/*.db
+**/*.sqlite*
+.artifacts/
+**/.npm-cache/

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Check, Clipboard, X } from 'lucide-react'
 import { useSubmissionDetail } from '@/api/hooks'
 import { ApiError } from '@/api/client'
@@ -12,14 +12,29 @@ export function SubmissionModal({ id, onClose }: { id: string; onClose: () => vo
   const detail = useSubmissionDetail(id)
   const [tab, setTab] = useState<'code' | 'diff'>('code')
   const [copied, setCopied] = useState(false)
+  const modalRef = useRef<HTMLDivElement>(null)
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
 
   useEffect(() => {
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    modalRef.current?.querySelector<HTMLButtonElement>('button')?.focus()
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose()
+      if (event.key === 'Escape') onCloseRef.current()
+      if (event.key === 'Tab') {
+        const controls = modalRef.current?.querySelectorAll<HTMLElement>('button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex="0"]')
+        if (!controls?.length) return
+        const first = controls[0]
+        const last = controls[controls.length - 1]
+        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus() }
+        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus() }
+      }
     }
     window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+    return () => { window.removeEventListener('keydown', onKey); document.body.style.overflow = previousOverflow; previousFocus?.focus() }
+  }, [])
 
   const copy = async () => {
     if (!detail.data) return
@@ -43,7 +58,7 @@ export function SubmissionModal({ id, onClose }: { id: string; onClose: () => vo
         if (event.target === event.currentTarget) onClose()
       }}
     >
-      <div className="modal">
+      <div className="modal" ref={modalRef}>
         <div className="modal-head">
           <div>
             <h3>Submission</h3>

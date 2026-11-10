@@ -28,7 +28,7 @@ export function DiagnosticList({ diagnostics, code, onSelect }: DiagnosticListPr
     return (
       <div className="problems-empty">
         <CheckCircle2 size={15} color="var(--cyan)" />
-        No problems detected. Neko-9 approves.
+        No diagnostics. Run your code to check it.
       </div>
     )
   }

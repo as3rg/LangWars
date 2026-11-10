@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api } from './client'
+import { api, ApiError } from './client'
 import type { NewsItem } from './types'
 import { useAuthStore } from '@/store/auth'
 
@@ -31,6 +31,7 @@ export function useSession() {
     enabled: Boolean(token),
     retry: false,
     staleTime: 60_000,
+    refetchInterval: 15_000,
   })
 
   useEffect(() => {
@@ -38,7 +39,7 @@ export function useSession() {
   }, [query.data, setUser])
 
   useEffect(() => {
-    if (query.error && token) clear()
+    if (query.error instanceof ApiError && [401, 403].includes(query.error.status) && token) clear()
   }, [query.error, token, clear])
 
   return {
@@ -54,7 +55,7 @@ export function useNews() {
 }
 
 export function useTasks() {
-  return useQuery({ queryKey: qk.tasks, queryFn: api.tasks })
+  return useQuery({ queryKey: qk.tasks, queryFn: api.tasks, refetchInterval: 15_000 })
 }
 
 export function useTask(id: string | undefined) {
@@ -71,6 +72,7 @@ export function useTaskSubmissions(taskId: string | undefined, scope: 'mine' | '
     queryKey: qk.taskSubmissions(taskId ?? '', scope),
     queryFn: () => api.taskSubmissions(taskId!, scope),
     enabled: Boolean(taskId) && Boolean(token),
+    refetchInterval: 10_000,
   })
 }
 
@@ -80,6 +82,7 @@ export function useAllSubmissions(params: { taskId?: string; userId?: string } =
     queryKey: qk.submissions(params.taskId, params.userId),
     queryFn: () => api.submissions({ ...params, limit: 100 }),
     enabled: Boolean(token),
+    refetchInterval: 10_000,
   })
 }
 
@@ -110,6 +113,7 @@ export function useRating(table: string) {
     queryKey: qk.rating(table),
     queryFn: () => api.rating(table),
     enabled: Boolean(table),
+    refetchInterval: 15_000,
   })
 }
 
@@ -149,8 +153,8 @@ export function useRegister() {
   const setAuth = useAuthStore((state) => state.setAuth)
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ username, email, password }: { username: string; email: string; password: string }) =>
-      api.register(username, email, password),
+    mutationFn: ({ username, email, password, inviteCode }: { username: string; email: string; password: string; inviteCode?: string }) =>
+      api.register(username, email, password, inviteCode),
     onSuccess: (data) => {
       setAuth(data.user, data.token)
       queryClient.setQueryData(['me', data.token], data.user)

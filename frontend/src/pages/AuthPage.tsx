@@ -1,8 +1,9 @@
 import { useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { LogIn, ShieldCheck, UserPlus } from 'lucide-react'
 import { useLogin, useLogout, useRegister, useSession } from '@/api/hooks'
-import { ApiError } from '@/api/client'
+import { api, ApiError } from '@/api/client'
 import { CatMascot } from '@/components/CatMascot'
 import { Avatar, Badge, GlowButton, LinkButton, Panel } from '@/components/ui'
 import { toast } from '@/store/ui'
@@ -19,11 +20,13 @@ export function AuthPage() {
   const login = useLogin()
   const register = useRegister()
   const logout = useLogout()
+  const config = useQuery({ queryKey: ['config'], queryFn: api.config })
 
   const [mode, setMode] = useState<'login' | 'register'>('login')
-  const [username, setUsername] = useState('neko')
-  const [password, setPassword] = useState('nyanya')
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
   const [email, setEmail] = useState('')
+  const [inviteCode, setInviteCode] = useState('')
 
   const doLogin = (name = username, pass = password) => {
     login.mutate(
@@ -39,7 +42,7 @@ export function AuthPage() {
 
   const doRegister = () => {
     register.mutate(
-      { username, email, password },
+      { username, email, password, inviteCode: inviteCode || undefined },
       {
         onSuccess: (data) => {
           toast('success', `Account created: ${data.user.username}`)
@@ -68,11 +71,6 @@ export function AuthPage() {
                 )}
               </div>
             </div>
-          </div>
-
-          <div className="notice mt-24">
-            Auth is mocked, but the contract is server-owned: the frontend only stores the JWT and
-            calls <code className="mono">/me</code>. Admin-only routes are enforced by the API.
           </div>
 
           <div className="row wrap mt-24" style={{ gap: 10 }}>
@@ -123,6 +121,7 @@ export function AuthPage() {
           </button>
           <button
             className={mode === 'register' ? 'filter-chip active' : 'filter-chip'}
+            disabled={config.data?.registrationMode === 'closed'}
             onClick={() => setMode('register')}
           >
             register
@@ -130,6 +129,13 @@ export function AuthPage() {
         </div>
 
         <div className="stack">
+          {config.data?.registrationMode === 'closed' && <p className="muted">Registration is currently closed.</p>}
+          {mode === 'register' && config.data?.registrationMode === 'invite' && (
+            <div className="field">
+              <label htmlFor="auth-invite">Invitation code</label>
+              <input id="auth-invite" className="input" value={inviteCode} autoComplete="off" onChange={(event) => setInviteCode(event.target.value)} />
+            </div>
+          )}
           <div className="field">
             <label htmlFor="auth-username">username</label>
             <input
@@ -161,6 +167,7 @@ export function AuthPage() {
               id="auth-password"
               className="input"
               type="password"
+              minLength={mode === 'register' ? 12 : undefined}
               value={password}
               autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
               onChange={(event) => setPassword(event.target.value)}
@@ -198,19 +205,6 @@ export function AuthPage() {
           )}
         </div>
 
-        <div className="auth-hint">
-          <div className="row-between wrap" style={{ gap: 10 }}>
-            <span>Demo accounts (password: nyanya)</span>
-            <span className="row wrap" style={{ gap: 6 }}>
-              <button className="filter-chip" onClick={() => doLogin('neko', 'nyanya')}>
-                neko · user
-              </button>
-              <button className="filter-chip" onClick={() => doLogin('admin', 'nyanya')}>
-                admin · admin
-              </button>
-            </span>
-          </div>
-        </div>
       </Panel>
     </div>
   )
