@@ -335,7 +335,11 @@ class Parser:
 
 def compile_program(code, options=None):
     try:
-        return Parser(code, options or {}).parse()
+        program = Parser(code, options or {}).parse()
+        check_builtin_scope(program["top"])
+        for function in program["functions"].values():
+            check_builtin_scope(function["body"], function.get("annotation"))
+        return program
     except RecursionError:
         raise Rejected("Syntax nesting limit exceeded", "SOURCE_LIMIT")
 
@@ -442,6 +446,15 @@ def function_dependencies(function):
         for expr in expression_walk(stmt.get("expr", ["int", 0])):
             if expr[0] in ("name", "call") and expr[1] not in RESERVED: names.add(expr[1])
     return names
+
+def check_builtin_scope(body, annotation=None):
+    if annotation in OPERATIONS:
+        return
+    for stmt in flatten(body):
+        for expr in expression_walk(stmt.get("expr", ["int", 0])):
+            if expr[0] == "call" and expr[1] in BUILTINS:
+                raise Rejected("Builtin functions may only be called inside stdlib override definitions", "BUILTIN_SCOPE", stmt.get("pos", 0))
+
 
 def check_contract_syntax(function):
     annotation = function.get("annotation")
@@ -747,6 +760,8 @@ class Runtime:
     def call(self, name, args, arg_exprs=None):
         self.tick()
         if name in BUILTINS:
+            if self.contract not in OPERATIONS:
+                raise Rejected("Builtin functions may only be called inside stdlib override definitions", "BUILTIN_SCOPE")
             op = name[len("__builtin_"):-2]
             if op == "eq" and len(args) >= 2 and kind(args[0]) != kind(args[1]): raise Rejected("__builtin_eq__ requires identical argument types", "CONTRACT")
             if op == "concat" and (len(args) < 2 or not all(isinstance(value, str) for value in args[:2])):
@@ -884,6 +899,8 @@ def validate_publication(snapshot, changes, options=None):
         return [diagnostic(Exhausted())]
 
 def _validate_publication(snapshot, changes, options):
+    for function in changes.get("functions", {}).values():
+        check_builtin_scope(function["body"], function.get("annotation"))
     for name, old in snapshot.get("functions", {}).items():
         annotation = old.get("annotation")
         if annotation in OPERATIONS:

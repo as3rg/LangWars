@@ -171,22 +171,61 @@ class LanguageTests(unittest.TestCase):
     def test_builtin_concat_bypasses_overrides_and_is_allowed_in_contracts(self):
         override = '@concat fn <string,string> change(first,second){return "changed";}'
         self.assert_ok('return concat("a","b");', "changed", prefix=override)
-        self.assert_ok('return __builtin_concat__("a","b");', "ab", prefix=override)
+        cast = '@cast(string) fn <int> original(number){return __builtin_concat__("a","b");}'
+        self.assert_ok('return string(1);', "ab", prefix=override + cast)
         self.assert_ok('return concat("a","b");', "ab", prefix='@concat fn <string,string> change(first,second){return __builtin_concat__(first,second);}')
-        self.assert_ok('return __builtin_concat__("🙂","");', "🙂")
-        self.assertEqual(self.run_code('return __builtin_concat__(12,"b");', "12b")["status"], "CE")
-        self.assertEqual(self.run_code('return __builtin_concat__("a");', "a")["status"], "CE")
+        self.assert_ok('return concat("🙂","");', "🙂", prefix='@concat fn <string,string> change(first,second){return __builtin_concat__(first,second);}')
+        for expression in ('__builtin_concat__(12,"b")', '__builtin_concat__("a")'):
+            result = self.run_code('return 0;', 0, prefix='@concat fn <string,string> change(first,second){return ' + expression + ';}')
+            self.assertEqual(result["status"], "CE", result)
+            self.assertIn("requires two string operands", result["diagnostics"][0]["message"])
         self.assertEqual(judge('@solution fn __builtin_concat__(){return "";}', [{"input": [], "expected": ""}])["status"], "CE")
 
     def test_builtin_concat_has_string_and_allocation_bounds(self):
         from server.langwarsscript.runtime import Runtime, Exhausted
-        runtime = Runtime({"functions": {}, "top": [], "names": []}, options={"max_cells": 200000})
-        value = runtime.call("__builtin_concat__", ["a" * 700000, "b" * 700000])
+        program = compile_program('@concat fn <string,string> change(first,second){return __builtin_concat__(first,second);}@solution fn solve(){return 0;}')
+        runtime = Runtime(program, options={"max_cells": 200000})
+        value = runtime.call("change", ["a" * 700000, "b" * 700000])
         self.assertEqual(len(value), 1000000)
         self.assertTrue(value.endswith("b" * 300000))
-        runtime = Runtime({"functions": {}, "top": [], "names": []}, options={"max_cells": 1000})
+        runtime = Runtime(program, options={"max_cells": 1000})
         with self.assertRaises(Exhausted):
-            runtime.call("__builtin_concat__", ["a" * 10000, "b" * 10000])
+            runtime.call("change", ["a" * 10000, "b" * 10000])
+
+    def test_builtin_calls_require_a_stdlib_definition_in_all_source_paths(self):
+        calls = ('__builtin_eq__(1,1)', '__builtin_lt__(1,2)', '__builtin_get__([1],0)', '__builtin_set__([1],0,2)', '__builtin_length__([1])', '__builtin_concat__("a","b")')
+        for call in calls:
+            sources = [
+                '@solution fn solve(){let value=' + call + ';return 0;}',
+                '@solution fn solve(){if(0){return ' + call + ';}return 0;}',
+                'fn helper(){return ' + call + ';}@solution fn solve(){return 0;}',
+                'let value=' + call + ';@solution fn solve(){return 0;}',
+            ]
+            for source in sources:
+                with self.subTest(call=call, source=source):
+                    result = judge(source, [{"input": [], "expected": 0}])
+                    self.assertEqual(result["status"], "CE", result)
+                    self.assertEqual(result["diagnostics"][0]["code"], "BUILTIN_SCOPE", result)
+                    self.assertEqual(result["changes"], {})
+        code = '@solution fn <list,int> cyclic_answer(items,index){let x=__builtin_eq__(1,1);return get(items,index);}'
+        self.assertEqual(judge(code, [{"input": [[4,8],1], "expected": 8}])["status"], "CE")
+
+    def test_runtime_and_publication_guard_legacy_builtin_calls(self):
+        from server.langwarsscript.runtime import Parser, Runtime, Rejected
+        legacy = Parser('fn helper(){return __builtin_eq__(1,1);}@solution fn old_answer(){return 0;}', {}).parse()
+        snapshot = {"variables": {}, "functions": legacy["functions"], "last": {}}
+        # An unused old helper must not make the entire shared world unusable.
+        clean = judge('@solution fn solve(){return 0;}', [{"input": [], "expected": 0}], snapshot)
+        self.assertEqual(clean["status"], "OK", clean)
+        called = judge('@solution fn solve(){return helper();}', [{"input": [], "expected": 1}], snapshot)
+        self.assertEqual(called["status"], "CE", called)
+        self.assertEqual(called["diagnostics"][0]["code"], "BUILTIN_SCOPE")
+        runtime = Runtime(compile_program('@solution fn solve(){return 0;}'))
+        with self.assertRaises(Rejected) as blocked:
+            runtime.call('__builtin_eq__', [1, 1])
+        self.assertEqual(blocked.exception.code, "BUILTIN_SCOPE")
+        errors = validate_publication({}, {"functions": {"helper": legacy["functions"]["helper"]}})
+        self.assertEqual(errors[0]["code"], "BUILTIN_SCOPE")
 
     def test_name_length_policy_covers_every_custom_name(self):
         for code in [
@@ -200,7 +239,7 @@ class LanguageTests(unittest.TestCase):
             result = judge(code, [{"input": [], "expected": 0}], options={"max_name_length": 4})
             self.assertEqual(result["status"], "CE", result)
             self.assertEqual(result["diagnostics"][0]["code"], "NAME_LENGTH", result)
-        result = judge('@solution fn a(){return __builtin_concat__("x","y");}', [{"input": [], "expected": "xy"}], options={"max_name_length": 1})
+        result = judge('@concat fn <string,string> a(b,c){return __builtin_concat__(b,c);}@solution fn d(){return concat("x","y");}', [{"input": [], "expected": "xy"}], options={"max_name_length": 1})
         self.assertEqual(result["status"], "OK", result)
         result = judge('@solution fn abcde(){return 0;}', [{"input": [], "expected": 0}], options={"max_name_length": 5})
         self.assertEqual(result["status"], "OK", result)

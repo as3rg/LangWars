@@ -123,6 +123,12 @@ Publication and contract checks
   and composition of separately overridden get/set operations. The proposed
   nondegeneracy condition on equality is deliberately not implemented: constant-true
   equality can be legal, as the spec explicitly allows.
+- Builtin escapes are callable only inside stdlib-annotated definitions, including
+  `@cast`. New source is checked statically, including unused ordinary helpers,
+  unreachable branches and global initializers; `@solution` grants no builtin access.
+  A runtime guard enforces the same boundary for inherited definitions. Dormant
+  legacy ordinary functions do not block unrelated submissions, but cannot execute
+  builtin calls. New publications are checked independently of source compilation.
 - Contract bodies permit free-form conditionals/loops/arithmetic but only explicit
   calls to the six specified builtin escapes. `__builtin_concat__` creates the
   normal bounded concatenation of two string operands and bypasses `@concat`.

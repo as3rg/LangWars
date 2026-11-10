@@ -104,6 +104,25 @@ class PlatformTests(unittest.TestCase):
         self.assertEqual(self.client.post("/api/tasks/shared-sum/run", json=data, headers=headers).status_code, 202)
         self.assertEqual(self.client.post("/api/tasks/shared-sum/run", json=data, headers=headers).status_code, 429)
 
+    def test_builtin_boundary_applies_to_run_and_submit_without_publication(self):
+        _, headers = self.register()
+        code = '@solution fn <list,int> cyclic_answer(items,index){let x=__builtin_eq__(1,1);return get(items,index);}'
+        for action in ("run", "submit"):
+            response = self.client.post(f"/api/tasks/cyclic-access/{action}", json={"code": code}, headers=headers)
+            self.assertEqual(response.status_code, 202, response.text)
+            process_job(self.store, self.store.claim())
+            outcome = self.client.get("/api/jobs/" + response.json()["jobId"], headers=headers).json()
+            self.assertEqual(outcome["status"], "completed", outcome)
+            result = outcome["result"] if action == "run" else outcome["result"]["submission"]
+            self.assertEqual(result["status"], "CE", result)
+            self.assertEqual(result["diagnostics"][0]["code"], "BUILTIN_SCOPE")
+        with self.store.transaction() as tx:
+            self.assertEqual(tx.world()["snapshot"], {"variables": {}, "functions": {}, "last": {}})
+        self.settings(submitCooldownSeconds=0)
+        allowed = '@get fn <list,int> helper(first,second){return __builtin_get__(first,second);}@solution fn <list,int> cyclic_answer(items,index){return get(items,index);}'
+        accepted = self.submit_and_work("cyclic-access", allowed, headers)
+        self.assertEqual(accepted["status"], "OK", accepted)
+
     def test_fenced_lease_recovery_cannot_publish_old_attempt(self):
         _, headers = self.register()
         response = self.client.post("/api/tasks/shared-sum/run", json={"code": "x"}, headers=headers)
