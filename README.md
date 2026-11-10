@@ -22,6 +22,10 @@ The admin page controls registrations, invitations, users, name quotas and maxim
 
 For a public domain, set `PUBLIC_DOMAIN` in `.env` and use `docker compose -f compose.yaml -f compose.public.yaml up --build -d --scale worker=2`. See the HTTPS instructions in [operations](docs/Operations.md) for DNS and ports.
 
+Published GitHub releases build and publish GHCR images after CI passes. For a
+pull-only Portainer stack and a host nginx domain configuration, see
+[release deployment](deploy/portainer/README.md).
+
 ## Development
 
 Use Python 3.13 and Node.js 22 or newer. From the repository root:
