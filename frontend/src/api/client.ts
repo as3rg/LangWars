@@ -114,9 +114,9 @@ function jsonBody(body: unknown): RequestInit {
 export const api = {
   login: (username: string, password: string) =>
     apiFetch<AuthResponse>('/auth/login', jsonBody({ username, password })),
-  register: (username: string, email: string, password: string, inviteCode?: string) =>
-    apiFetch<AuthResponse>('/auth/register', jsonBody({ username, email, password, inviteCode })),
-  config: () => apiFetch<Pick<PlatformSettings, 'registrationMode' | 'runCooldownSeconds' | 'submitCooldownSeconds' | 'allowedWords'>>('/config'),
+  register: (username: string, password: string, inviteCode?: string) =>
+    apiFetch<AuthResponse>('/auth/register', jsonBody({ username, password, inviteCode })),
+  config: () => apiFetch<Pick<PlatformSettings, 'registrationMode' | 'runCooldownSeconds' | 'submitCooldownSeconds' | 'allowedWords' | 'maxNameLength'>>('/config'),
   logout: () => apiFetch<void>('/auth/logout', { method: 'POST' }),
   me: () => apiFetch<User>('/me'),
 
@@ -160,7 +160,7 @@ export const api = {
   adminSettings: () => apiFetch<PlatformSettings>('/admin/settings'),
   saveSettings: (settings: PlatformSettings) => apiFetch<PlatformSettings>('/admin/settings', { method: 'PATCH', body: JSON.stringify(settings) }),
   invites: () => apiFetch<Invite[]>('/admin/invites'),
-  createInvite: () => apiFetch<Invite>('/admin/invites', jsonBody({})),
+  createInvite: (options: { maxUses: number; expiresInHours: number } = { maxUses: 1, expiresInHours: 24 }) => apiFetch<Invite>('/admin/invites', jsonBody(options)),
   deleteInvite: (id: string) => apiFetch<void>(`/admin/invites/${id}`, { method: 'DELETE' }),
   restoreOverrides: (operations?: string[]) => executeJob<{ restored: string[]; version: number }>('/admin/overrides/restore', { operations }),
   adminTasks: () => apiFetch<AdminTask[]>('/admin/tasks'),

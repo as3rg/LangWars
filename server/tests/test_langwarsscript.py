@@ -168,4 +168,43 @@ class LanguageTests(unittest.TestCase):
         self.assert_ok("helper(); return eq(helper,3);", 1, prefix='fn helper(){return "cat";}')
         self.assert_ok("helper(); return helper;", "cat", prefix='fn helper(){return "cat";}')
 
+    def test_builtin_concat_bypasses_overrides_and_is_allowed_in_contracts(self):
+        override = '@concat fn <string,string> change(first,second){return "changed";}'
+        self.assert_ok('return concat("a","b");', "changed", prefix=override)
+        self.assert_ok('return __builtin_concat__("a","b");', "ab", prefix=override)
+        self.assert_ok('return concat("a","b");', "ab", prefix='@concat fn <string,string> change(first,second){return __builtin_concat__(first,second);}')
+        self.assert_ok('return __builtin_concat__("🙂","");', "🙂")
+        self.assertEqual(self.run_code('return __builtin_concat__(12,"b");', "12b")["status"], "CE")
+        self.assertEqual(self.run_code('return __builtin_concat__("a");', "a")["status"], "CE")
+        self.assertEqual(judge('@solution fn __builtin_concat__(){return "";}', [{"input": [], "expected": ""}])["status"], "CE")
+
+    def test_builtin_concat_has_string_and_allocation_bounds(self):
+        from server.langwarsscript.runtime import Runtime, Exhausted
+        runtime = Runtime({"functions": {}, "top": [], "names": []}, options={"max_cells": 200000})
+        value = runtime.call("__builtin_concat__", ["a" * 700000, "b" * 700000])
+        self.assertEqual(len(value), 1000000)
+        self.assertTrue(value.endswith("b" * 300000))
+        runtime = Runtime({"functions": {}, "top": [], "names": []}, options={"max_cells": 1000})
+        with self.assertRaises(Exhausted):
+            runtime.call("__builtin_concat__", ["a" * 10000, "b" * 10000])
+
+    def test_name_length_policy_covers_every_custom_name(self):
+        for code in [
+            '@solution fn abcde(){return 0;}',
+            '@solution fn a(abcde){return 0;}',
+            '@solution fn a(){let abcde=0;return 0;}',
+            '@solution fn a(){abcde: return 0;}',
+            '@solution fn a(){return abcde;}',
+            '@solution fn a(){return abcde();}',
+        ]:
+            result = judge(code, [{"input": [], "expected": 0}], options={"max_name_length": 4})
+            self.assertEqual(result["status"], "CE", result)
+            self.assertEqual(result["diagnostics"][0]["code"], "NAME_LENGTH", result)
+        result = judge('@solution fn a(){return __builtin_concat__("x","y");}', [{"input": [], "expected": "xy"}], options={"max_name_length": 1})
+        self.assertEqual(result["status"], "OK", result)
+        result = judge('@solution fn abcde(){return 0;}', [{"input": [], "expected": 0}], options={"max_name_length": 5})
+        self.assertEqual(result["status"], "OK", result)
+        result = judge('@solution fn abcde(){return 0;}', [{"input": [], "expected": 0}], options={"max_name_length": None})
+        self.assertEqual(result["status"], "OK", result)
+
 if __name__ == "__main__": unittest.main()

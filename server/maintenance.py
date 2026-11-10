@@ -8,14 +8,14 @@ from .store import Store
 
 def cleanup(store, job_days=7, rejected_days=30, audit_days=180):
     now = time.time()
-    counts = {"jobs": 0, "sessions": 0, "throttle": 0, "rejectedSubmissions": 0, "audit": 0}
+    counts = {"jobs": 0, "sessions": 0, "throttle": 0, "auth_failures": 0, "rejectedSubmissions": 0, "audit": 0}
     with store.transaction() as tx:
         counts["jobs"] = tx.execute("DELETE FROM jobs WHERE status IN ('completed','failed') AND created<?", (now - job_days * 86400,)).rowcount
-        for kind in ("sessions", "throttle"):
+        for kind in ("sessions", "throttle", "auth_failures"):
             for row in tx.execute("SELECT id,data FROM records WHERE kind=?", (kind,)).fetchall():
                 import json
                 value = json.loads(row[1])
-                expired = value.get("expires", 0) < now if kind == "sessions" else not value or max(value) < now - 60
+                expired = value.get("expires", 0) < now if kind == "sessions" else (value.get("lastFailure", 0) < now - 900 if kind == "auth_failures" else not value or max(value) < now - 60)
                 if expired:
                     tx.delete(kind, row[0])
                     counts[kind] += 1

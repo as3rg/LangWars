@@ -78,7 +78,6 @@ components:
         id: { type: string }
         username: { type: string }
         displayName: { type: string }
-        email: { type: string, format: email }
         role: { $ref: '#/components/schemas/Role' }
         avatarHue: { type: integer, minimum: 0, maximum: 360 }
         rating: { type: integer }
@@ -100,11 +99,11 @@ components:
         password: { type: string, format: password }
     RegisterRequest:
       type: object
-      required: [username, email, password]
+      required: [username, password]
       properties:
         username: { type: string, minLength: 3, maxLength: 24 }
-        email: { type: string, format: email }
-        password: { type: string, format: password, minLength: 6 }
+        password: { type: string, format: password, minLength: 12 }
+        inviteCode: { type: string, maxLength: 128 }
     NewsCategory:
       type: string
       enum: [event, update, maintenance, holiday]

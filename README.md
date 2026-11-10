@@ -14,9 +14,13 @@ docker compose up --build -d --scale worker=2
 
 Open <http://localhost:8080>. Sign in using the bootstrap administrator credentials from `.env`. There are no demo accounts. The bootstrap account is only created when the database has no administrator; editing the environment is not a password reset mechanism.
 
+The first test defaults to **invitation-only registration**. Accounts use a username and password; no email address is collected. Create invitations in Administration. For a presentation QR, choose a registration limit and expiry, then copy the invite link. Invite tokens stay in the URL fragment and are removed from the address bar when the registration form opens.
+
 PostgreSQL persists in the `postgres` Docker volume. Runs and submissions are asynchronous jobs. API restarts do not lose queued work; abandoned worker jobs can be reclaimed. A run executes the visible examples without publishing. Submit runs every test and publishes only after passing the tests and contract checks.
 
-The admin page controls registrations, invitations, users, name quotas, submission cooldowns, allowed dictionary words, the deny-list, permitted core overrides, per-task override limits, tasks and tests, and news/events. The submission feed includes all players; source code is restricted to its author and administrators. The namespace browser shows the shared definitions that players can affect.
+The admin page controls registrations, invitations, users, name quotas and maximum identifier length, submission cooldowns, allowed dictionary words, the deny-list, permitted core overrides, per-task override limits, tasks and tests, and news/events. Shared variable names, variable values, function names, and function bodies/signatures each have an independent public/admin-only setting. Names are public and values are admin-only by default. Administrators can always inspect the world. Ten tasks ship with unfinished starter code.
+
+For a public domain, set `PUBLIC_DOMAIN` in `.env` and use `docker compose -f compose.yaml -f compose.public.yaml up --build -d --scale worker=2`. See the HTTPS instructions in [operations](docs/Operations.md) for DNS and ports.
 
 ## Development
 

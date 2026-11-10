@@ -9,7 +9,6 @@ export interface User {
   id: string
   username: string
   displayName: string
-  email?: string
   role: Role
   avatarHue: number
   rating: number
@@ -90,6 +89,8 @@ export interface PlatformSettings {
   permittedOverrides: string[]
   defaultCoreOverrideLimit: number
   maxQueuedJobs: number
+  maxNameLength: number
+  worldVisibility: Record<'variables' | 'functions', Record<'names' | 'values', 'admin_only' | 'public'>>
 }
 
 export interface Invite {
@@ -98,6 +99,9 @@ export interface Invite {
   usedAt?: string
   usedBy?: string
   code?: string
+  maxUses: number
+  uses: number
+  expiresAt: string
 }
 
 export interface AdminTask extends Task {
@@ -109,6 +113,7 @@ export interface Namespace {
   values: Record<string, unknown>
   functions: Record<string, unknown>
   last?: Record<string, unknown>
+  visibility: Record<'variables' | 'functions', { names: boolean; values: boolean }>
 }
 
 export interface AuditEntry {

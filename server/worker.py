@@ -65,6 +65,7 @@ def sandbox(payload, timeout=None):
 def options_for(world, task):
     settings = world["settings"]
     return {"allowed_words": task.get("allowedWords") if task.get("allowedWords") is not None else settings["allowedWords"],
+            "max_name_length": settings["maxNameLength"],
             "deny_words": settings["denyWords"], "permitted_overrides": settings["permittedOverrides"],
             "max_overrides": task.get("coreOverrideLimit", settings["defaultCoreOverrideLimit"]),
             "max_steps": max(10000, min(task.get("timeLimitMs", 1000) * 200, 1000000)),
@@ -253,6 +254,7 @@ def process_job(store, job):
             options.update(read_only=True, overlay_names=[name for name, owner in world.get("owners", {}).items() if owner != sub["id"]])
             # Previously accepted code remains eligible after administrative dictionary changes.
             options["allowed_words"] = None
+            options["max_name_length"] = None
             options["deny_words"] = []
             options["permitted_overrides"] = ["eq", "cmp", "cast", "get", "set", "length", "contains", "empty", "push_back", "truthy", "concat"]
             options["max_overrides"] = 1000

@@ -6,8 +6,9 @@ import type { AdminTask, NewsItem, PlatformSettings, SubmissionCursor, User } fr
 import { useSession } from '@/api/hooks'
 import { Badge, ErrorNotice, GlowButton, LinkButton, Loading, Panel, StatusPill } from '@/components/ui'
 import { SubmissionModal } from '@/components/SubmissionModal'
-import { formatRelative } from '@/lib/time'
+import { formatDateTime, formatRelative } from '@/lib/time'
 import { toast } from '@/store/ui'
+import { inviteLink } from '@/lib/invites'
 
 const OPERATIONS = ['eq', 'cmp', 'cast', 'get', 'set', 'length', 'empty', 'contains', 'push_back', 'truthy', 'concat']
 const TABS = ['Settings', 'Users', 'Tasks', 'Events', 'Submissions', 'Audit'] as const
@@ -46,15 +47,25 @@ function Settings() {
   const invites = useQuery({ queryKey: ['admin', 'invites'], queryFn: api.invites })
   const action = useAction()
   const [code, setCode] = useState('')
+  const [maxUses, setMaxUses] = useState(1)
+  const [expiresInHours, setExpiresInHours] = useState(24)
+  const link = inviteLink(window.location.origin, code.trim())
+  const copy = async (value: string) => {
+    try { await navigator.clipboard.writeText(value); toast('success', 'Copied.') }
+    catch { toast('info', 'Select and copy the value above.') }
+  }
   if (query.isLoading) return <Loading />
   if (query.error) return <ErrorNotice message={message(query.error)} />
   return <div className="stack">
     {query.data && <SettingsForm settings={query.data} />}
     <Panel className="panel-pad stack">
-      <div className="row-between wrap"><span>Invitations</span><GlowButton size="sm" loading={action.busy} onClick={() => action.run(async () => { const created = await api.createInvite(); setCode(created.code ?? '') }, 'Invitation created.')}>Create invitation</GlowButton></div>
-      {code && <div className="notice"><p>Copy this code now; it will only be shown once.</p><input className="input mono" readOnly aria-label="New invitation code" value={code} onFocus={(event) => event.target.select()} /><GlowButton size="sm" onClick={() => navigator.clipboard.writeText(code).then(() => toast('success', 'Copied.')).catch(() => toast('info', 'Select and copy the code above.'))}>Copy</GlowButton></div>}
+      <div className="row-between wrap"><span>Invitations</span><GlowButton size="sm" loading={action.busy} onClick={() => action.run(async () => { const created = await api.createInvite({ maxUses, expiresInHours }); setCode(created.code ?? '') }, 'Invitation created.')}>Create invitation</GlowButton></div>
+      <div className="form-grid"><Field label="Registrations allowed"><input className="input" type="number" min="1" max="500" value={maxUses} onChange={(event) => setMaxUses(Number(event.target.value))} /></Field><Field label="Expires after (hours)"><input className="input" type="number" min="1" max="168" value={expiresInHours} onChange={(event) => setExpiresInHours(Number(event.target.value))} /></Field></div>
+      <p className="muted">Allow multiple registrations for a presentation QR. New tokens are shown once; keep the link until the event ends.</p>
+      <Field label="Invitation token"><input className="input mono" value={code} autoComplete="off" spellCheck={false} placeholder="Create an invitation or paste an existing token" onChange={(event) => setCode(event.target.value)} onFocus={(event) => event.target.select()} /></Field>
+      {link && <div className="notice stack"><input className="input mono" readOnly aria-label="Invitation link" value={link} onFocus={(event) => event.target.select()} /><div className="row wrap" style={{ gap: 8 }}><GlowButton size="sm" onClick={() => copy(link)}>Copy invite link</GlowButton><GlowButton size="sm" onClick={() => copy(code.trim())}>Copy token</GlowButton></div></div>}
       {invites.error && <ErrorNotice message={message(invites.error)} />}
-      <div className="table-wrap"><table className="data-table"><thead><tr><th>Created</th><th>Status</th><th /></tr></thead><tbody>{invites.data?.map((invite) => <tr key={invite.id}><td>{formatRelative(invite.createdAt)}</td><td>{invite.usedAt ? `Used ${formatRelative(invite.usedAt)}` : 'Available'}</td><td><GlowButton size="sm" disabled={action.busy} onClick={() => action.run(() => api.deleteInvite(invite.id), 'Invitation revoked.')}>Revoke</GlowButton></td></tr>)}</tbody></table></div>
+      <div className="table-wrap"><table className="data-table"><thead><tr><th>Created</th><th>Registrations</th><th>Expires</th><th>Status</th><th /></tr></thead><tbody>{invites.data?.map((invite) => <tr key={invite.id}><td>{formatRelative(invite.createdAt)}</td><td>{invite.uses} / {invite.maxUses}</td><td>{formatDateTime(invite.expiresAt)}</td><td>{invite.uses >= invite.maxUses ? 'Exhausted' : Date.parse(invite.expiresAt) <= Date.now() ? 'Expired' : 'Available'}</td><td><GlowButton size="sm" disabled={action.busy} onClick={() => action.run(() => api.deleteInvite(invite.id), 'Invitation revoked.')}>Revoke</GlowButton></td></tr>)}</tbody></table></div>
       {action.error && <ErrorNotice message={action.error} />}
     </Panel>
   </div>
@@ -65,11 +76,14 @@ function SettingsForm({ settings }: { settings: PlatformSettings }) {
   const [allowed, setAllowed] = useState(settings.allowedWords.join('\n'))
   const [denied, setDenied] = useState(settings.denyWords.join('\n'))
   const action = useAction()
-  const number = (key: 'defaultNameLimit' | 'runCooldownSeconds' | 'submitCooldownSeconds' | 'defaultCoreOverrideLimit' | 'maxQueuedJobs', label: string) => <Field label={label}><input className="input" type="number" min="0" value={draft[key]} onChange={(event) => setDraft({ ...draft, [key]: Number(event.target.value) })} /></Field>
+  const number = (key: 'defaultNameLimit' | 'runCooldownSeconds' | 'submitCooldownSeconds' | 'defaultCoreOverrideLimit' | 'maxQueuedJobs' | 'maxNameLength', label: string) => <Field label={label}><input className="input" type="number" min={key === 'maxNameLength' || key === 'maxQueuedJobs' ? 1 : 0} max={key === 'maxNameLength' ? 128 : undefined} value={draft[key]} onChange={(event) => setDraft({ ...draft, [key]: Number(event.target.value) })} /></Field>
+  const visibility = (kind: 'variables' | 'functions', field: 'names' | 'values', label: string) => <Field label={label}><select className="select" value={draft.worldVisibility[kind][field]} onChange={(event) => setDraft({ ...draft, worldVisibility: { ...draft.worldVisibility, [kind]: { ...draft.worldVisibility[kind], [field]: event.target.value as 'public' | 'admin_only' } } })}><option value="public">Public</option><option value="admin_only">Administrators only</option></select></Field>
   return <Panel className="panel-pad stack"><div className="form-grid">
     <Field label="Registration"><select className="select" value={draft.registrationMode} onChange={(event) => setDraft({ ...draft, registrationMode: event.target.value as PlatformSettings['registrationMode'] })}><option value="open">Open</option><option value="invite">Invitation only</option><option value="closed">Closed</option></select></Field>
-    {number('defaultNameLimit', 'Names per user')}{number('runCooldownSeconds', 'Run cooldown (seconds)')}{number('submitCooldownSeconds', 'Submission cooldown (seconds)')}{number('defaultCoreOverrideLimit', 'Core overrides per task')}{number('maxQueuedJobs', 'Queue capacity')}
+    {number('defaultNameLimit', 'Names per user')}{number('maxNameLength', 'Maximum name length')}{number('runCooldownSeconds', 'Run cooldown (seconds)')}{number('submitCooldownSeconds', 'Submission cooldown (seconds)')}{number('defaultCoreOverrideLimit', 'Core overrides per task')}{number('maxQueuedJobs', 'Queue capacity')}
+    {visibility('variables', 'names', 'Variable names')}{visibility('variables', 'values', 'Variable values')}{visibility('functions', 'names', 'Function names')}{visibility('functions', 'values', 'Function bodies and signatures')}
   </div>
+    <p className="muted">Hidden names also hide their values. Administrators can always inspect the entire world.</p>
     <Field label="Allowed words"><textarea className="textarea mono" rows={6} value={allowed} onChange={(event) => setAllowed(event.target.value)} placeholder="One word per line, or CSV" /></Field>
     <label className="row wrap" style={{ gap: 12 }}>Import dictionary CSV<input type="file" accept=".csv,.txt,text/csv,text/plain" onChange={async (event) => { const file = event.target.files?.[0]; if (!file) return; if (file.size > 1_000_000) { toast('error', 'Dictionary must be smaller than 1 MB.'); return }; setAllowed(words(await file.text()).join('\n')) }} /></label>
     <Field label="Denied words"><textarea className="textarea mono" rows={4} value={denied} onChange={(event) => setDenied(event.target.value)} placeholder="One term per line" /></Field>

@@ -1,12 +1,15 @@
 # Verification — 10 November 2026
 
-- **47 server tests passed inside the Linux Docker image**, including real PostgreSQL tests in a disposable schema. None were skipped in this run.
-- **24 frontend tests passed**, and the TypeScript/Vite production build passed both locally and in Docker.
+- **62 server tests passed inside the Linux Docker image**, including real PostgreSQL tests in a disposable schema. None were skipped in this run.
+- **31 frontend tests passed**, and the TypeScript/Vite production build passed both locally and in Docker.
 - The updated frontend dependency tree reported **zero npm audit vulnerabilities**, including development dependencies.
-- Compose configuration validated, and PostgreSQL, API, nginx, and two workers started successfully with the supplied resource and filesystem restrictions.
-- All four seeded task starters passed visible runs and complete submissions through HTTP → nginx → API → PostgreSQL queue → Linux interpreter subprocess → publication.
+- Python dependency audit checked **20 resolved packages** and reported **no known vulnerabilities**.
+- Base and public Compose configurations validated. PostgreSQL, API, nginx, Caddy, and two workers started successfully with the supplied resource and filesystem restrictions.
+- All **ten task reference implementations** passed complete submissions through HTTPS → Caddy → nginx → API → PostgreSQL queue → Linux interpreter subprocess → publication. All ten unfinished starters returned wrong-answer verdicts as intended; reference solutions live only in test fixtures.
+- HTTPS was checked with hostname/certificate verification enabled using a disposable local CA. HTTP redirected to HTTPS, HSTS was present, and a forged `X-Forwarded-For` header did not become nginx's client identity. Real-domain ACME issuance remains dependent on the operator's DNS and reachable ports.
+- Privacy tests covered all sixteen visibility-policy combinations for guest, player and administrator roles, including hidden bodies/signatures/remembered results. Authentication tests covered randomized salts, bounded hash parameters, unknown-account parity, persistent backoff across restart, and request rate limits. Invite tests covered expiry, revocation, reuse caps and concurrent single-use redemption.
 - HTTP smoke and integration checks covered authorization, private job access, hidden-test redaction, password-reset session revocation, task ranking, timeout and syntax verdicts, SPA routes, and security headers.
-- A read-only probe sent **300 requests with 150 concurrent clients**: 300 HTTP 200 responses, 3.76 seconds overall, 1.66 seconds median request latency and 2.22 seconds p95 on this development environment. This used public read endpoints; it is not a measurement of interpreter throughput or a production capacity guarantee.
+- The earlier read-only probe sent **300 requests with 150 concurrent clients**: 300 HTTP 200 responses, 3.76 seconds overall, 1.66 seconds median request latency and 2.22 seconds p95 on this development environment. This used public read endpoints before the invite-only release; it is not a measurement of interpreter throughput or a production capacity guarantee.
 - The Nix npm dependency hash was recomputed after the dependency updates. A complete Nix package build was not run.
 - Visual browser QA could not be completed: embedded browser access was unavailable, and native browser capture remained unavailable after window recovery. UI verification consists of the production build, automated tests, and HTTP checks.
 

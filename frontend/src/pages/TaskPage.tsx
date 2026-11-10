@@ -45,12 +45,13 @@ function messageOf(error: unknown): string {
 export function TaskPage() {
   const { id } = useParams()
   const query = useTask(id)
+  const { user } = useSession()
 
   if (query.isLoading) return <Loading label="opening task…" />
   if (query.error) return <ErrorNotice message="Could not load this task." />
   if (!query.data) return null
 
-  return <TaskWorkspace key={query.data.id} task={query.data} />
+  return <TaskWorkspace key={`${query.data.id}:${user?.id ?? 'guest'}`} task={query.data} />
 }
 
 type TabId = 'mine' | 'all' | 'rating' | string
@@ -58,7 +59,7 @@ type TabId = 'mine' | 'all' | 'rating' | string
 function TaskWorkspace({ task }: { task: Task }) {
   const { user, isAdmin } = useSession()
   const version: LangVersion = isLangVersion(task.languageVersion) ? task.languageVersion : LATEST_VERSION
-  const storageKey = `langwars.code.${task.id}`
+  const storageKey = `langwars.code.v2.${user?.id ?? 'guest'}.${task.id}`
 
   const [code, setCode] = useState(() => {
     try {

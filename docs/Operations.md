@@ -10,6 +10,32 @@ The default HTTP port binds to loopback. Put an HTTPS reverse proxy in front of 
 
 The server and worker containers run as an unprivileged user, with a read-only root filesystem, no Linux capabilities, no privilege escalation, a process limit, and a small temporary filesystem. They never mount the Docker socket or host directories. These use the [standard Compose service constraints](https://docs.docker.com/reference/compose-file/services/).
 
+## Public HTTPS
+
+Set `PUBLIC_DOMAIN=your.domain.example` in `.env`, point its DNS A record to the server, and allow inbound TCP ports 80 and 443 (UDP 443 is optional for HTTP/3). Publish an AAAA record only when IPv6 ingress is configured too. Then run:
+
+```sh
+docker compose -f compose.yaml -f compose.public.yaml up --build -d --scale worker=2
+```
+
+Caddy obtains and renews the domain certificate and redirects HTTP to HTTPS. The [automatic HTTPS requirements](https://caddyserver.com/docs/automatic-https) include correct DNS and reachable challenge ports. The API/database remain unexposed, and the direct nginx port retains its loopback binding. Caddy also runs as an unprivileged user with a read-only root and persistent named volumes for certificate state. No account email or ACME contact email is required by this configuration.
+
+The public overlay uses a small dedicated ingress network (`172.30.250.0/29`). Only Caddy's address (`172.30.250.2`) is trusted by nginx to supply client addresses. Caddy overwrites untrusted forwarded headers at the public edge; nginx can therefore apply per-client authentication limits without grouping every visitor under the proxy address. See [Caddy proxy header behavior](https://caddyserver.com/docs/caddyfile/directives/reverse_proxy) and [nginx real-IP trust](https://nginx.org/en/docs/http/ngx_http_realip_module.html). If this subnet conflicts with your VPN, change both ingress addresses/subnet in `compose.public.yaml` and the exact trusted address in `deploy/proxy-trust-public.conf`. If another proxy or CDN sits before Caddy, configure its specific trusted addresses rather than trusting arbitrary client headers.
+
+Check `https://your.domain.example/api/health` after deployment. Public certificate issuance was not tested against a real domain in this session; the HTTPS stack was tested locally with a trusted test CA. The public configuration enables HSTS and restrictive browser headers. Run builds with refreshed base images periodically (`docker compose -f compose.yaml -f compose.public.yaml build --pull`).
+
+## Accounts, invitations, and visibility
+
+Passwords use scrypt with `N=32768`, `r=8`, `p=3`, a fresh 16-byte random salt and a 32-byte derived hash. The stored record includes the parameters, and verification uses a constant-time comparison. These work factors match one of the [OWASP scrypt configurations](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html). Three concurrent hashing slots cap hashing memory at roughly 96 MiB; hashing does not hold the shared-world lock. Bearer sessions and invitation secrets are stored only as SHA-256 digests of high-entropy random tokens.
+
+After three failed logins, persisted per-account delays grow from one second to a maximum of 60 seconds; a 15-minute quiet period resets the failure count. Unknown usernames use the same password work and delay rules. Authentication also has per-account and gateway request budgets; nginx allows 60 authentication requests per minute per client with a burst of 150 to accommodate a shared venue NAT. Throttled requests return 429 and login timeouts include `Retry-After`. Password resets, bans, deletion, and logout revoke the relevant sessions. There is no email recovery flow; an administrator resets passwords.
+
+Registration defaults to invitation-only. An invitation permits 1–500 registrations and expires in 1–168 hours; defaults are one registration and 24 hours. For a presentation, set the intended audience size and expiry, then copy the generated link. It has the form `https://your.domain.example/auth#invite=TOKEN`: fragments are absent from HTTP requests, and the form clears the fragment after reading it. Keep the link when it is first shown because the server cannot recover plaintext invitation tokens. A manually supplied token can also be converted to a link. Revoke the link after the event if capacity remains. Anyone holding a valid link can use its remaining registrations.
+
+World visibility has four independent policies: variable names, variable values, function names, and function bodies/signatures. `admin_only` names remove the corresponding entries completely; hidden values produce names-only entries and never return function bodies, signatures, or remembered results. Administrators always retain full access. These settings control inspection through the website/API. The shared language can still compute with shared values, and deliberately public function bodies may mention variable names; visibility is not a new language isolation boundary.
+
+This release intentionally requires a fresh database. To discard the old development accounts, sessions, invitations, and world state, stop this application's stack and remove its PostgreSQL volume with `docker compose down --volumes`, then start the new stack. This deletes application data; schema and password-format migrations are deliberately absent.
+
 ## Workers on VPN hosts
 
 On the database host, set `VPN_DATABASE_BIND` to its VPN address and opt in to the additional binding:

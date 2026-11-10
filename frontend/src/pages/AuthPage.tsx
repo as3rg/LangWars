@@ -1,12 +1,13 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { LogIn, ShieldCheck, UserPlus } from 'lucide-react'
 import { useLogin, useLogout, useRegister, useSession } from '@/api/hooks'
 import { api, ApiError } from '@/api/client'
 import { CatMascot } from '@/components/CatMascot'
 import { Avatar, Badge, GlowButton, LinkButton, Panel } from '@/components/ui'
 import { toast } from '@/store/ui'
+import { inviteFromFragment } from '@/lib/invites'
 
 function errorMessage(error: unknown): string {
   if (error instanceof ApiError) return error.message
@@ -17,16 +18,27 @@ function errorMessage(error: unknown): string {
 export function AuthPage() {
   const { user, isAdmin } = useSession()
   const navigate = useNavigate()
+  const location = useLocation()
   const login = useLogin()
   const register = useRegister()
   const logout = useLogout()
   const config = useQuery({ queryKey: ['config'], queryFn: api.config })
 
-  const [mode, setMode] = useState<'login' | 'register'>('login')
+  const [mode, setMode] = useState<'login' | 'register'>(() => inviteFromFragment(location.hash) ? 'register' : 'login')
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
-  const [email, setEmail] = useState('')
-  const [inviteCode, setInviteCode] = useState('')
+  const [inviteCode, setInviteCode] = useState(() => inviteFromFragment(location.hash))
+
+  useEffect(() => {
+    const code = inviteFromFragment(location.hash)
+    if (code) {
+      setInviteCode(code)
+      setMode('register')
+    }
+    if (new URLSearchParams(location.hash.slice(1)).has('invite')) {
+      window.history.replaceState(window.history.state, '', location.pathname + location.search)
+    }
+  }, [location.hash, location.pathname, location.search])
 
   const doLogin = (name = username, pass = password) => {
     login.mutate(
@@ -42,7 +54,7 @@ export function AuthPage() {
 
   const doRegister = () => {
     register.mutate(
-      { username, email, password, inviteCode: inviteCode || undefined },
+      { username, password, inviteCode: inviteCode || undefined },
       {
         onSuccess: (data) => {
           toast('success', `Account created: ${data.user.username}`)
@@ -146,20 +158,6 @@ export function AuthPage() {
               onChange={(event) => setUsername(event.target.value)}
             />
           </div>
-
-          {mode === 'register' && (
-            <div className="field">
-              <label htmlFor="auth-email">email</label>
-              <input
-                id="auth-email"
-                className="input"
-                value={email}
-                autoComplete="email"
-                onChange={(event) => setEmail(event.target.value)}
-                placeholder="cat@langwars.dev"
-              />
-            </div>
-          )}
 
           <div className="field">
             <label htmlFor="auth-password">password</label>

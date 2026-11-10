@@ -4,7 +4,7 @@ import type { LangVersion } from '@/lwlang'
 
 const KEYWORDS = ['let', 'fn', 'return', 'if', 'else', 'while', 'comefrom', 'and', 'or', 'not']
 const TYPES = ['int', 'string', 'list', 'dict']
-const BUILTINS = ['eq', 'cmp', 'get', 'set', 'length', 'empty', 'contains', 'push_back', 'truthy', 'concat', 'swap', ...TYPES]
+const BUILTINS = ['eq', 'cmp', 'get', 'set', 'length', 'empty', 'contains', 'push_back', 'truthy', 'concat', 'swap', '__builtin_eq__', '__builtin_lt__', '__builtin_get__', '__builtin_set__', '__builtin_length__', '__builtin_concat__', ...TYPES]
 const ANNOTATIONS = ['solution', 'eq', 'cmp', 'cast', 'get', 'set', 'length', 'empty', 'contains', 'push_back', 'truthy', 'concat']
 interface LwState { inBlockComment: boolean }
 export function createLwlangLanguage(_version: LangVersion, _extraKeywords: string[] = []) {

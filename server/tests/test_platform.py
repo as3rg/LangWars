@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 from server.app import create_app
 from server.store import Store, dumps, uid
 from server.worker import finish, process_job, sandbox
+from server.tests.task_solutions import TASK_SOLUTIONS
 
 
 class PlatformTests(unittest.TestCase):
@@ -23,6 +24,12 @@ class PlatformTests(unittest.TestCase):
         self.client = TestClient(self.app)
         self.client.__enter__()
         self.store = self.app.state.store
+        # Most platform fixtures deliberately use open registration; deployment
+        # defaults are tested separately below.
+        with self.store.transaction() as tx:
+            world = tx.world()
+            world["settings"]["registrationMode"] = "open"
+            tx.save_world(world)
         response = self.client.post("/api/auth/login", json={"username": "operator", "password": "admin-password-for-tests"})
         self.assertEqual(response.status_code, 200, response.text)
         self.admin = {"Authorization": "Bearer " + response.json()["token"]}
@@ -33,7 +40,7 @@ class PlatformTests(unittest.TestCase):
         self.directory.cleanup()
 
     def register(self, username="player", **extra):
-        response = self.client.post("/api/auth/register", json={"username": username, "email": username + "@example.org", "password": "player-password-for-tests", **extra})
+        response = self.client.post("/api/auth/register", json={"username": username, "password": "player-password-for-tests", **extra})
         self.assertEqual(response.status_code, 201, response.text)
         data = response.json()
         return data["user"], {"Authorization": "Bearer " + data["token"]}
@@ -48,10 +55,10 @@ class PlatformTests(unittest.TestCase):
         invite = self.client.post("/api/admin/invites", json={}, headers=self.admin).json()
         self.assertNotIn("code", self.client.get("/api/admin/invites", headers=self.admin).json()[0])
         self.register(inviteCode=invite["code"])
-        reused = self.client.post("/api/auth/register", json={"username": "another", "email": "other@example.org", "password": "player-password-for-tests", "inviteCode": invite["code"]})
+        reused = self.client.post("/api/auth/register", json={"username": "another", "password": "player-password-for-tests", "inviteCode": invite["code"]})
         self.assertEqual(reused.status_code, 403)
         self.settings(registrationMode="closed")
-        self.assertEqual(self.client.post("/api/auth/register", json={"username": "third", "email": "third@example.org", "password": "player-password-for-tests"}).status_code, 403)
+        self.assertEqual(self.client.post("/api/auth/register", json={"username": "third", "password": "player-password-for-tests"}).status_code, 403)
 
     def test_admin_authorization_sessions_and_account_deletion(self):
         user, headers = self.register()
@@ -71,7 +78,7 @@ class PlatformTests(unittest.TestCase):
 
     def test_denylist_validation_and_body_limit(self):
         self.settings(denyWords=["blocked"])
-        self.assertEqual(self.client.post("/api/auth/register", json={"username": "ＢＬＯＣＫＥＤ", "email": "a@example.org", "password": "player-password-for-tests"}).status_code, 422)
+        self.assertEqual(self.client.post("/api/auth/register", json={"username": "ＢＬＯＣＫＥＤ", "password": "player-password-for-tests"}).status_code, 422)
         _, headers = self.register()
         response = self.client.post("/api/tasks/shared-sum/run", json={"code": "// BLOCKED\n@solution fn solve(){return 0;}", "languageVersion": "v0.3"}, headers=headers)
         self.assertEqual(response.status_code, 422)
@@ -116,7 +123,7 @@ class PlatformTests(unittest.TestCase):
         user, headers = self.register()
         task = self.client.get("/api/tasks/shared-sum").json()
         self.assertNotIn("tests", task)
-        payload = {"code": task["starterCode"], "languageVersion": "v0.3"}
+        payload = {"code": TASK_SOLUTIONS[task["id"]], "languageVersion": "v0.3"}
         self.client.post("/api/tasks/shared-sum/submit", json=payload, headers=headers)
         process_job(self.store, self.store.claim())
         details = self.client.get("/api/submissions", headers=headers).json()
@@ -134,7 +141,7 @@ class PlatformTests(unittest.TestCase):
         user, headers = self.register()
         self.client.patch(f"/api/admin/users/{user['id']}", json={"nameLimit": 1}, headers=self.admin)
         task = self.client.get("/api/tasks/shared-sum").json()
-        response = self.client.post("/api/tasks/shared-sum/submit", json={"code": task["starterCode"]}, headers=headers)
+        response = self.client.post("/api/tasks/shared-sum/submit", json={"code": TASK_SOLUTIONS[task["id"]]}, headers=headers)
         process_job(self.store, self.store.claim())
         result = self.client.get("/api/jobs/" + response.json()["jobId"], headers=headers).json()["result"]
         self.assertEqual(result["submission"]["status"], "CE")
@@ -185,7 +192,7 @@ class PlatformTests(unittest.TestCase):
     def test_atomic_publication_retries_if_admin_changes_dictionary(self):
         _, headers = self.register()
         task = self.client.get("/api/tasks/shared-sum").json()
-        response = self.client.post("/api/tasks/shared-sum/submit", json={"code": task["starterCode"]}, headers=headers)
+        response = self.client.post("/api/tasks/shared-sum/submit", json={"code": TASK_SOLUTIONS[task["id"]]}, headers=headers)
         changed = False
         def racing_sandbox(payload, timeout=None):
             nonlocal changed

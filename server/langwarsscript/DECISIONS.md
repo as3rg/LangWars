@@ -30,6 +30,10 @@ The following choices resolve gaps or contradictions in the working specificatio
   policy (used for grandfathered rechecks); an explicit empty dictionary permits
   no user-defined names. Dictionary validation covers declarations, parameters,
   label names, references and user function calls. Builtin spellings are exempt.
+  The administrator's `maxNameLength` policy applies to every custom identifier,
+  counting underscore separators as characters; its default is 48 characters.
+  Rechecks can disable this admission rule so a later policy change does not
+  reject previously accepted source solely because its names are now too long.
   Names with digits, leading/trailing underscores, doubled underscores or non-ASCII
   letters are rejected. Names are never used for host attribute access.
 - Strings use JSON escapes and Unicode code-point indexing, including astral
@@ -120,7 +124,10 @@ Publication and contract checks
   nondegeneracy condition on equality is deliberately not implemented: constant-true
   equality can be legal, as the spec explicitly allows.
 - Contract bodies permit free-form conditionals/loops/arithmetic but only explicit
-  calls to the five specified builtin escapes. Explicit casts and implicit casts
+  calls to the six specified builtin escapes. `__builtin_concat__` creates the
+  normal bounded concatenation of two string operands and bypasses `@concat`.
+  Unlike ordinary `concat`, the builtin does not implicitly convert nonstrings:
+  it reports a contract diagnostic for invalid operand types. Explicit casts and implicit casts
   inside the body are rejected; entry argument conversion remains allowed. Invalid
   builtin equality argument types, contract annotation removal, and `comefrom`
   crossings are rejected. Runtime guards also check scalar result domains and

@@ -153,8 +153,8 @@ export function useRegister() {
   const setAuth = useAuthStore((state) => state.setAuth)
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ username, email, password, inviteCode }: { username: string; email: string; password: string; inviteCode?: string }) =>
-      api.register(username, email, password, inviteCode),
+    mutationFn: ({ username, password, inviteCode }: { username: string; password: string; inviteCode?: string }) =>
+      api.register(username, password, inviteCode),
     onSuccess: (data) => {
       setAuth(data.user, data.token)
       queryClient.setQueryData(['me', data.token], data.user)

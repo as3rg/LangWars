@@ -10,7 +10,7 @@ from dataclasses import dataclass
 
 TYPES = ("int", "string", "list", "dict")
 OPERATIONS = ("eq", "cmp", "get", "set", "length", "contains", "empty", "push_back", "truthy", "concat", "cast")
-BUILTINS = {f"__builtin_{n}__" for n in ("eq", "lt", "get", "set", "length")}
+BUILTINS = {f"__builtin_{n}__" for n in ("eq", "lt", "get", "set", "length", "concat")}
 KEYWORDS = {"fn", "let", "return", "if", "else", "while", "comefrom", "and", "or", "not", "solution", "float", "function"}
 RESERVED = set(OPERATIONS) | set(TYPES) | BUILTINS | KEYWORDS | {"swap"}
 LIMIT = 1_000_000
@@ -146,6 +146,9 @@ class Parser:
         if token.kind != "id" or token.value in RESERVED:
             raise Rejected("Expected an unreserved identifier", "RESERVED_NAME", token.pos)
         self.index += 1
+        maximum = self.options.get("max_name_length")
+        if maximum is not None and len(token.value) > maximum:
+            raise Rejected(f"Names may contain at most {maximum} characters", "NAME_LENGTH", token.pos)
         if self.words is not None and any(word.lower() not in self.words for word in token.value.split("_")):
             raise Rejected(f"Name {token.value} contains a word outside the allowed dictionary", "INVALID_NAME", token.pos)
         self.names.add(token.value)
@@ -746,6 +749,8 @@ class Runtime:
         if name in BUILTINS:
             op = name[len("__builtin_"):-2]
             if op == "eq" and len(args) >= 2 and kind(args[0]) != kind(args[1]): raise Rejected("__builtin_eq__ requires identical argument types", "CONTRACT")
+            if op == "concat" and (len(args) < 2 or not all(isinstance(value, str) for value in args[:2])):
+                raise Rejected("__builtin_concat__ requires two string operands", "CONTRACT")
             return self.builtin(op, args)
         if self.contract: raise Rejected(f"Only builtin calls are allowed in @{self.contract}", "CONTRACT")
         if name in TYPES: return self.cast(args[0] if args else 0, name)

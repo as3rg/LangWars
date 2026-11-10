@@ -1,0 +1,19 @@
+{
+    admin off
+    skip_install_trust
+    http_port 8080
+    https_port 8443
+    servers {
+        timeouts {
+            read_header 10s
+            read_body 30s
+            idle 2m
+        }
+    }
+}
+
+{$PUBLIC_DOMAIN} {
+    header Strict-Transport-Security "max-age=31536000"
+    header Referrer-Policy "no-referrer"
+    reverse_proxy web:8080
+}

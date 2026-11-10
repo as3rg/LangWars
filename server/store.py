@@ -130,21 +130,7 @@ class Store:
         with self.transaction() as tx:
             if self.postgres:
                 tx.execute("SELECT pg_advisory_xact_lock(82317102)")
-            tx.execute("CREATE TABLE IF NOT EXISTS records(kind TEXT NOT NULL,id TEXT NOT NULL,data TEXT NOT NULL,created TEXT NOT NULL DEFAULT '',user_id TEXT NOT NULL DEFAULT '',task_id TEXT NOT NULL DEFAULT '',state TEXT NOT NULL DEFAULT '',accepted INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(kind,id))")
-            if self.postgres:
-                for column in ("created", "user_id", "task_id", "state"):
-                    tx.execute("ALTER TABLE records ADD COLUMN IF NOT EXISTS " + column + " TEXT NOT NULL DEFAULT ''")
-                tx.execute("ALTER TABLE records ADD COLUMN IF NOT EXISTS accepted INTEGER NOT NULL DEFAULT 0")
-                tx.execute("ALTER TABLE records ADD COLUMN IF NOT EXISTS duration DOUBLE PRECISION NOT NULL DEFAULT 0")
-            else:
-                columns = {row[1] for row in tx.execute("PRAGMA table_info(records)").fetchall()}
-                for column in ("created", "user_id", "task_id", "state"):
-                    if column not in columns:
-                        tx.execute("ALTER TABLE records ADD COLUMN " + column + " TEXT NOT NULL DEFAULT ''")
-                if "accepted" not in columns:
-                    tx.execute("ALTER TABLE records ADD COLUMN accepted INTEGER NOT NULL DEFAULT 0")
-                if "duration" not in columns:
-                    tx.execute("ALTER TABLE records ADD COLUMN duration DOUBLE PRECISION NOT NULL DEFAULT 0")
+            tx.execute("CREATE TABLE IF NOT EXISTS records(kind TEXT NOT NULL,id TEXT NOT NULL,data TEXT NOT NULL,created TEXT NOT NULL DEFAULT '',user_id TEXT NOT NULL DEFAULT '',task_id TEXT NOT NULL DEFAULT '',state TEXT NOT NULL DEFAULT '',accepted INTEGER NOT NULL DEFAULT 0,duration DOUBLE PRECISION NOT NULL DEFAULT 0,PRIMARY KEY(kind,id))")
             tx.execute("CREATE INDEX IF NOT EXISTS records_feed ON records(kind,created DESC)")
             tx.execute("CREATE INDEX IF NOT EXISTS records_feed_cursor ON records(kind,created DESC,id ASC)")
             tx.execute("CREATE INDEX IF NOT EXISTS records_user_task ON records(kind,user_id,task_id,state)")
@@ -153,9 +139,6 @@ class Store:
             tx.execute("CREATE TABLE IF NOT EXISTS dependencies(name TEXT NOT NULL,submission_id TEXT NOT NULL,PRIMARY KEY(name,submission_id))")
             tx.execute("CREATE INDEX IF NOT EXISTS dependencies_submission ON dependencies(submission_id)")
             tx.execute("CREATE TABLE IF NOT EXISTS jobs(id TEXT PRIMARY KEY,user_id TEXT NOT NULL,status TEXT NOT NULL,created DOUBLE PRECISION NOT NULL,lease DOUBLE PRECISION NOT NULL DEFAULT 0,data TEXT NOT NULL)")
-            if self.postgres:
-                # Explicit precision matters: PostgreSQL REAL rounds epoch seconds by minutes.
-                tx.execute("ALTER TABLE jobs ALTER COLUMN created TYPE DOUBLE PRECISION, ALTER COLUMN lease TYPE DOUBLE PRECISION")
             tx.execute("CREATE INDEX IF NOT EXISTS jobs_claim ON jobs(status,created)")
             if not tx.get("system", "world"):
                 tx.put("system", "world", initial_world())
@@ -163,8 +146,6 @@ class Store:
                     tx.put("tasks", task["id"], task)
                 for news in initial_news():
                     tx.put("news", news["id"], news)
-            for user in tx.list("users"):
-                tx.put("usernames", user["username"].casefold(), user["id"])
 
     def claim(self):
         with self.transaction() as tx:

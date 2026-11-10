@@ -23,6 +23,21 @@ describe('submission history', () => {
     expect(url.searchParams.get('limit')).toBe('100')
   })
 })
+
+describe('registration and invitations', () => {
+  it('sends only the username, password and invitation when registering', async () => {
+    const fetch = vi.fn().mockResolvedValue(json({ token: 'token', user: {} }, 201))
+    vi.stubGlobal('fetch', fetch)
+    await api.register('player', 'a-long-password', 'invite_token')
+    expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({ username: 'player', password: 'a-long-password', inviteCode: 'invite_token' })
+  })
+  it('requests a bounded reusable invitation with an explicit expiration', async () => {
+    const fetch = vi.fn().mockResolvedValue(json({ code: 'new_token' }, 201))
+    vi.stubGlobal('fetch', fetch)
+    await api.createInvite({ maxUses: 150, expiresInHours: 24 })
+    expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({ maxUses: 150, expiresInHours: 24 })
+  })
+})
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals() })
 
 describe('queued execution', () => {

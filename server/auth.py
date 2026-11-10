@@ -7,21 +7,25 @@ import unicodedata
 import threading
 
 _password_slots = threading.BoundedSemaphore(3)
+SCRYPT_N, SCRYPT_R, SCRYPT_P = 32768, 8, 3
+SCRYPT_MAXMEM = 64 * 1024 * 1024
 
 
 def password_hash(password):
     salt = secrets.token_bytes(16)
     with _password_slots:
-        digest = hashlib.scrypt(password.encode(), salt=salt, n=16384, r=8, p=1, dklen=32)
-    return "scrypt$" + salt.hex() + "$" + digest.hex()
+        digest = hashlib.scrypt(password.encode(), salt=salt, n=SCRYPT_N, r=SCRYPT_R, p=SCRYPT_P, maxmem=SCRYPT_MAXMEM, dklen=32)
+    return f"scrypt${SCRYPT_N}${SCRYPT_R}${SCRYPT_P}${salt.hex()}${digest.hex()}"
 
 
 def password_matches(password, stored):
     try:
-        _, salt, expected = stored.split("$")
+        algorithm, n, r, p, salt, expected = stored.split("$")
+        if algorithm != "scrypt" or (int(n), int(r), int(p)) != (SCRYPT_N, SCRYPT_R, SCRYPT_P) or len(salt) != 32 or len(expected) != 64:
+            return False
         with _password_slots:
-            digest = hashlib.scrypt(password.encode(), salt=bytes.fromhex(salt), n=16384, r=8, p=1, dklen=32)
-        return hmac.compare_digest(digest.hex(), expected)
+            digest = hashlib.scrypt(password.encode(), salt=bytes.fromhex(salt), n=SCRYPT_N, r=SCRYPT_R, p=SCRYPT_P, maxmem=SCRYPT_MAXMEM, dklen=32)
+        return hmac.compare_digest(digest, bytes.fromhex(expected))
     except (ValueError, TypeError):
         return False
 

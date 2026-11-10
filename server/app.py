@@ -17,8 +17,8 @@ from .seed import OPERATIONS
 from .store import Store, dumps, iso, uid
 
 
-def fail(status, code, message):
-    raise HTTPException(status, detail={"code": code, "message": message})
+def fail(status, code, message, headers=None):
+    raise HTTPException(status, detail={"code": code, "message": message}, headers=headers)
 
 
 def text(value, field, minimum=0, maximum=10000):
@@ -46,8 +46,8 @@ def clean_text(value, field, settings, minimum=0, maximum=10000):
     return value
 
 
-def new_user(username, email, password, settings, role="user", encoded_password=None):
-    return dict(id=uid("usr_"), username=username, displayName=username, email=email, role=role,
+def new_user(username, password, settings, role="user", encoded_password=None):
+    return dict(id=uid("usr_"), username=username, displayName=username, role=role,
                 passwordHash=encoded_password or password_hash(password), avatarHue=secrets.randbelow(360), rating=0,
                 solvedCount=0, streak=0, createdAt=iso(), banned=False,
                 nameLimit=settings["defaultNameLimit"], claimedNames=[], adminNote="")
@@ -84,7 +84,7 @@ def create_app(database_url=None):
                         raise RuntimeError("Bootstrap requires a valid username and a 12–256 character password")
                     if tx.get("usernames", username.casefold()):
                         raise RuntimeError("Bootstrap admin username is already registered; choose another username")
-                    user = new_user(username, os.environ.get("BOOTSTRAP_ADMIN_EMAIL", ""), password, world["settings"], "admin")
+                    user = new_user(username, password, world["settings"], "admin")
                     tx.put("users", user["id"], user)
                     tx.put("usernames", username.casefold(), user["id"])
                     tx.audit("bootstrap", "create_admin", user["id"])
@@ -96,7 +96,7 @@ def create_app(database_url=None):
     @app.exception_handler(HTTPException)
     async def http_error(request, error):
         detail = error.detail if isinstance(error.detail, dict) else {"code": "HTTP_ERROR", "message": str(error.detail)}
-        return JSONResponse({"error": detail}, status_code=error.status_code)
+        return JSONResponse({"error": detail}, status_code=error.status_code, headers=error.headers)
 
     @app.middleware("http")
     async def limits(request, call_next):
@@ -180,58 +180,92 @@ def create_app(database_url=None):
     def config():
         with store.transaction() as tx:
             settings = tx.get("system", "world")["settings"]
-            return {key: settings[key] for key in ["registrationMode", "runCooldownSeconds", "submitCooldownSeconds", "allowedWords"]}
+            return {key: settings[key] for key in ["registrationMode", "runCooldownSeconds", "submitCooldownSeconds", "allowedWords", "maxNameLength"]}
 
     @app.post("/api/auth/login")
     def login(request: Request, body: dict = Body(...)):
+        if set(body) - {"username", "password"}:
+            fail(422, "BAD_BODY", "Only username and password are accepted")
         username = text(body.get("username"), "username", 1, 24)
         password = text(body.get("password"), "password", 1, 256)
+        account_key = token_hash(username.casefold())
         with store.transaction() as tx:
             tx.world()
             allowed = auth_throttle(tx, request, username)
-        if not allowed:
-            fail(429, "RATE_LIMIT", "Too many login attempts. Try again in a minute.")
-        with store.transaction() as tx:
+            failures = tx.get("auth_failures", account_key) or {}
+            retry = max(0, failures.get("blockedUntil", 0) - time.time())
             user_id = tx.get("usernames", username.casefold())
-            user = tx.get("users", user_id) if user_id else None
-            valid = password_matches(password, user["passwordHash"] if user else DUMMY_HASH)
-            if not user or not valid or user.get("banned"):
-                fail(401, "BAD_CREDENTIALS", "Wrong username or password")
-            return authenticated_response(tx, user)
+            candidate = tx.get("users", user_id) if user_id else None
+        if not allowed:
+            fail(429, "RATE_LIMIT", "Too many login attempts. Try again in a minute.", {"Retry-After": "60"})
+        if retry > 0:
+            fail(429, "LOGIN_TIMEOUT", "Login temporarily unavailable. Try again shortly.", {"Retry-After": str(max(1, int(retry + .999)))})
+        # Hashing is bounded independently of the request thread pool, and never holds
+        # the world lock. Unknown accounts perform the same password work.
+        encoded = candidate["passwordHash"] if candidate else DUMMY_HASH
+        valid = password_matches(password, encoded)
+        with store.transaction() as tx:
+            tx.world()
+            user = tx.get("users", candidate["id"]) if candidate else None
+            failures = tx.get("auth_failures", account_key) or {}
+            retry = max(0, failures.get("blockedUntil", 0) - time.time())
+            if not retry and user and valid and not user.get("banned") and user["passwordHash"] == encoded:
+                tx.delete("auth_failures", account_key)
+                return authenticated_response(tx, user)
+            if not retry:
+                now = time.time()
+                count = min(16, failures.get("failures", 0) + 1) if failures.get("lastFailure", 0) > now - 900 else 1
+                delay = min(60, 2 ** (count - 3)) if count >= 3 else 0
+                tx.put("auth_failures", account_key, {"failures": count, "lastFailure": now, "blockedUntil": now + delay})
+        # Raise only after committing the failed-attempt record.
+        if retry:
+            fail(429, "LOGIN_TIMEOUT", "Login temporarily unavailable. Try again shortly.", {"Retry-After": str(max(1, int(retry + .999)))})
+        fail(401, "BAD_CREDENTIALS", "Wrong username or password")
+
+    def registration_access(tx, username, code):
+        settings = tx.get("system", "world")["settings"]
+        if settings["registrationMode"] == "closed":
+            fail(403, "REGISTRATION_CLOSED", "Registration is closed")
+        clean_text(username, "username", settings)
+        if tx.get("usernames", username.casefold()):
+            fail(409, "USERNAME_TAKEN", "Username is already taken")
+        invite = None
+        if settings["registrationMode"] == "invite":
+            from datetime import datetime
+            invite = tx.get("invites", token_hash(code)) if code else None
+            if not invite or invite["uses"] >= invite["maxUses"] or datetime.fromisoformat(invite["expiresAt"].replace("Z", "+00:00")).timestamp() <= time.time():
+                fail(403, "INVALID_INVITE", "A valid unexpired invitation is required")
+        return settings, invite
 
     @app.post("/api/auth/register", status_code=201)
     def register(request: Request, body: dict = Body(...)):
+        if set(body) - {"username", "password", "inviteCode"}:
+            fail(422, "BAD_BODY", "Only username, password and invitation code are accepted")
         username = text(body.get("username"), "username", 3, 24)
         password = text(body.get("password"), "password", 12, 256)
-        email = text(body.get("email"), "email", 3, 254)
-        if not re.fullmatch(r"[A-Za-z0-9_]+", username) or not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", email):
-            fail(422, "BAD_BODY", "Invalid username or email")
+        code = text(body.get("inviteCode", ""), "inviteCode", 0, 128)
+        if not re.fullmatch(r"[A-Za-z0-9_]+", username):
+            fail(422, "BAD_BODY", "Invalid username")
         with store.transaction() as tx:
             tx.world()
             allowed = auth_throttle(tx, request, username)
         if not allowed:
-            fail(429, "RATE_LIMIT", "Too many registration attempts")
+            fail(429, "RATE_LIMIT", "Too many registration attempts", {"Retry-After": "60"})
+        # Reject unusable invitations before spending password-hashing CPU.
+        with store.transaction() as tx:
+            registration_access(tx, username, code)
         encoded_password = password_hash(password)
         with store.transaction() as tx:
             world = tx.world()
-            settings = world["settings"]
-            if settings["registrationMode"] == "closed":
-                fail(403, "REGISTRATION_CLOSED", "Registration is closed")
-            invite = None
-            if settings["registrationMode"] == "invite":
-                code = text(body.get("inviteCode", ""), "inviteCode", 1, 128)
-                invite = tx.get("invites", token_hash(code))
-                if not invite or invite.get("usedAt"):
-                    fail(403, "INVALID_INVITE", "A valid unused invite code is required")
-            clean_text(username, "username", settings)
-            clean_text(email, "email", settings)
-            if tx.get("usernames", username.casefold()):
-                fail(409, "USERNAME_TAKEN", "Username is already taken")
-            user = new_user(username, email, password, settings, encoded_password=encoded_password)
+            settings, invite = registration_access(tx, username, code)
+            user = new_user(username, password, settings, encoded_password=encoded_password)
             tx.put("users", user["id"], user)
             tx.put("usernames", username.casefold(), user["id"])
             if invite:
-                invite.update(usedAt=iso(), usedBy=user["id"])
+                invite["uses"] += 1
+                invite.update(lastUsedAt=iso(), usedBy=user["id"])
+                if invite["uses"] >= invite["maxUses"]:
+                    invite["usedAt"] = iso()
                 tx.put("invites", token_hash(code), invite)
             return authenticated_response(tx, user)
 
@@ -288,11 +322,11 @@ def create_app(database_url=None):
             now = time.time()
             remaining = user.get(field, 0) + cooldown - now
             if remaining > 0:
-                fail(429, "COOLDOWN", f"Try again in {remaining:.1f} seconds")
+                fail(429, "COOLDOWN", f"Try again in {remaining:.1f} seconds", {"Retry-After": str(max(1, int(remaining + .999)))})
             pending = tx.execute("SELECT COUNT(*) FROM jobs WHERE status IN ('queued','running') AND id NOT LIKE 'recheck_%'").fetchone()[0]
             mine = tx.execute("SELECT COUNT(*) FROM jobs WHERE user_id=? AND status IN ('queued','running') AND id NOT LIKE 'recheck_%'", (user["id"],)).fetchone()[0]
             if pending >= settings["maxQueuedJobs"] or mine >= 2:
-                fail(429, "QUEUE_FULL", "The queue is full. Try again shortly.")
+                fail(429, "QUEUE_FULL", "The queue is full. Try again shortly.", {"Retry-After": "5"})
             job = {"id": uid("job_"), "userId": user["id"], "taskId": task["id"], "code": code,
                    "languageVersion": version, "mode": mode, "createdAt": iso()}
             tx.execute("INSERT INTO jobs(id,user_id,status,created,data) VALUES(?,?,'queued',?,?)", (job["id"], user["id"], now, dumps(job)))
@@ -408,11 +442,25 @@ def create_app(database_url=None):
             return {"kind": "stats", "data": {"taskTitle": task["title"], "totalSubmissions": total, "uniqueCats": users, "solvedCats": solved, "solveRate": solved / max(1, users), "averageAttempts": total / max(1, users), "fastestMs": fastest, "statusBreakdown": breakdown, "topCats": top, "recent": submission_list(tx, task["id"], limit=5)}}
 
     @app.get("/api/namespace")
-    def namespace():
+    def namespace(request: Request):
         with store.transaction() as tx:
             world = tx.get("system", "world")
-            # Function bodies are shared definitions; passwords, sessions and hidden tests never appear here.
-            return {"version": world["version"], "values": world["snapshot"]["variables"], "functions": world["snapshot"]["functions"], "last": world["snapshot"].get("last", {})}
+            user = current(request, tx, required=False)
+            admin = bool(user and user["role"] == "admin")
+            policies = world["settings"]["worldVisibility"]
+            visibility = {kind: {field: admin or policies[kind][field] == "public" for field in ("names", "values")} for kind in ("variables", "functions")}
+            for policy in visibility.values():
+                policy["values"] = policy["values"] and policy["names"]
+            result = {"version": world["version"], "visibility": visibility, "values": {}, "functions": {}, "last": {}}
+            for kind, section in [("variables", "values"), ("functions", "functions")]:
+                policy = visibility[kind]
+                if policy["names"]:
+                    result[section] = {name: value if policy["values"] else None for name, value in world["snapshot"][kind].items()}
+            if visibility["functions"]["values"]:
+                fields = ("name", "params", "types", "annotation", "cast_to", "source")
+                result["functions"] = {name: {key: definition.get(key) for key in fields} for name, definition in result["functions"].items()}
+                result["last"] = {name: value for name, value in world["snapshot"].get("last", {}).items() if name in result["functions"]}
+            return result
 
     @app.get("/api/news")
     def news():
@@ -452,6 +500,14 @@ def create_app(database_url=None):
                 if key == "registrationMode":
                     if value not in ["open", "invite", "closed"]:
                         fail(422, "BAD_BODY", "Invalid registration mode")
+                elif key == "worldVisibility":
+                    if not isinstance(value, dict) or set(value) != {"variables", "functions"}:
+                        fail(422, "BAD_BODY", "Visibility must define variables and functions")
+                    for policy in value.values():
+                        if not isinstance(policy, dict) or set(policy) != {"names", "values"} or any(choice not in ("public", "admin_only") for choice in policy.values()):
+                            fail(422, "BAD_BODY", "Each visibility policy needs names and values set to public or admin_only")
+                elif key == "maxNameLength":
+                    value = integer(value, key, 1, 128)
                 elif key in ["allowedWords", "denyWords", "permittedOverrides"]:
                     value = words(value, key)
                     if key == "allowedWords" and any(not re.fullmatch("[a-zA-Z]+", word) for word in value):
@@ -558,11 +614,17 @@ def create_app(database_url=None):
             return tx.list("invites")
 
     @app.post("/api/admin/invites", status_code=201)
-    def create_invite(request: Request):
+    def create_invite(request: Request, body: dict = Body(default={})):
+        from datetime import datetime, timezone
+        if set(body) - {"maxUses", "expiresInHours"}:
+            fail(422, "BAD_BODY", "Unknown invitation setting")
+        uses = integer(body.get("maxUses", 1), "maxUses", 1, 500)
+        hours = integer(body.get("expiresInHours", 24), "expiresInHours", 1, 168)
         code = secrets.token_urlsafe(24)
         with store.transaction() as tx:
             admin = current(request, tx, admin=True)
-            invite = {"id": uid("inv_"), "createdAt": iso()}
+            expires = datetime.fromtimestamp(time.time() + hours * 3600, timezone.utc).isoformat().replace("+00:00", "Z")
+            invite = {"id": uid("inv_"), "createdAt": iso(), "uses": 0, "maxUses": uses, "expiresAt": expires}
             tx.put("invites", token_hash(code), invite)
             tx.audit(admin["id"], "create_invite", invite["id"])
             return {**invite, "code": code}
@@ -570,6 +632,7 @@ def create_app(database_url=None):
     @app.delete("/api/admin/invites/{invite_id}", status_code=204)
     def delete_invite(invite_id: str, request: Request):
         with store.transaction() as tx:
+            tx.world()
             admin = current(request, tx, admin=True)
             found = False
             for row in tx.execute("SELECT id,data FROM records WHERE kind='invites'").fetchall():

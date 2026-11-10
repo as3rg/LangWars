@@ -93,7 +93,6 @@ export function seedUsers(): { users: User[]; passwords: Record<string, string> 
       id,
       username,
       displayName,
-      email: `${username}@langwars.dev`,
       role,
       avatarHue: hue,
       rating,
