@@ -4,6 +4,13 @@ import { t } from './i18n'
 const SOLUTION_KINDS = new Set(['accepted', 'rejected', 'broken', 'repaired', 'breaking'])
 export function isSolutionNotification(item: UserNotification): boolean { return SOLUTION_KINDS.has(item.kind) }
 
+// The same semantic hue is used for a popup and its retained history entry.
+export function notificationTone(kind: UserNotification['kind']): 'positive' | 'negative' | 'golden' | 'neutral' {
+  if (kind === 'accepted' || kind === 'repaired' || kind === 'success') return 'positive'
+  if (kind === 'broken' || kind === 'rejected' || kind === 'error') return 'negative'
+  return kind === 'breaking' ? 'golden' : 'neutral'
+}
+
 export function impactText(impact: BreakImpact): string {
   return impact.usernames?.length ? impact.usernames.join(', ') : t('{count} players', { count: impact.userCount })
 }

@@ -193,17 +193,32 @@ class NotificationTests(unittest.TestCase):
         self.submit_now(first_task, '@solution fn shared_answer(){let answer=10;return answer+1;}', first_headers)
         first_breaker = self.submit_now(second_task, '@solution fn second_answer(){let answer=50;return answer+answer;}', second_headers)
         self.drain()
-        self.assertEqual(len(self.notices(first_headers, "broken")), 2)
+        # Only the latest accepted entry for the task remains in play.
+        self.assertEqual(len(self.notices(first_headers, "broken")), 1)
         first_impact = self.client.get("/api/submissions/" + first_breaker["id"], headers=second_headers).json()["breakImpact"]
         self.assertEqual(first_impact, {"userCount": 1})
         self.submit_now(repair_task, '@solution fn helper_answer(){let answer=10;return answer;}', second_headers)
         self.drain()
-        self.assertEqual(len(self.notices(first_headers, "repaired")), 2)
+        self.assertEqual(len(self.notices(first_headers, "repaired")), 1)
         self.submit_now(third_task, '@solution fn third_answer(){let answer=50;return answer;}', second_headers)
         self.drain()
-        self.assertEqual(len(self.notices(first_headers, "broken")), 4)
+        self.assertEqual(len(self.notices(first_headers, "broken")), 2)
         self.assertEqual(len(self.notices(second_headers, "breaking")), 2)
         self.assert_audits_released()
+
+    def test_old_sample_and_private_toasts_do_not_appear_or_count_as_unread(self):
+        from server.notifications import event
+        user, headers = self.register()
+        hidden = ["Sample run: OK", "Sample run: WRONG_ANSWER", "Примеры: TLE", "Code is private to its author.", "Код доступен только автору."]
+        ordinary = ["Sample run: OK was useful", "Code is private to its author. Please contact support.", "Saved."]
+        with self.store.transaction() as tx:
+            for index, message in enumerate(hidden + ordinary):
+                event(tx, user["id"], "info", "old:" + str(index), message=message)
+            event(tx, user["id"], "accepted", "accepted:sample", taskTitle="Sample run: OK")
+        response = self.client.get("/api/notifications", headers=headers).json()
+        self.assertEqual(response["unreadCount"], 4)
+        self.assertEqual({item["message"] for item in response["items"] if item["kind"] == "info"}, set(ordinary))
+        self.assertEqual(sum(item["kind"] == "accepted" for item in response["items"]), 1)
 
 
 if __name__ == "__main__":

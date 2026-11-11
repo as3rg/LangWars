@@ -78,7 +78,7 @@ Deleting a user revokes their sessions. Published definitions remain part of the
 
 Use the admin override restore action when a shared operation needs to return to its built-in behavior. Administrators can also edit or delete individual values and function definitions in World. These edits use the displayed world version, validate bounded language values/contracts, record an audit entry, and schedule rechecks. A conflicting concurrent publication requires refreshing and retrying. Rejudging is read-only: it must never republish the original code's values.
 
-Scores count each currently passing task once per user. The rating selector offers the whole world, individual tasks, and events with assigned tasks; player search preserves ranks within the selected ladder. Global scores also include administrative adjustments and any repeat-submission charges. Administrators can correct a player's login, score and solved task set; case-insensitive login uniqueness is enforced. A score correction establishes an offset from the current task total, so future solves and breaks still affect the score. Solved-task corrections survive rechecks; a fresh accepted submission for that task returns it to normal verdict tracking. Corrections never prevent solving other tasks later.
+Scores count each currently passing task once per user, using the latest accepted publication for that player/task. Failed attempts leave the prior accepted solution active; older accepted entries stay in history but stop affecting scores and future rechecks. Their published globals remain in the shared world. The rating selector offers the whole world, individual tasks, and events with assigned tasks; player search preserves ranks within the selected ladder. Global scores also include administrative adjustments and repeat-submission charges. Task/event ladders subtract their own charges and display base score minus fees, ordered by the net score. Administrators can correct a player's login, score and solved task set; case-insensitive login uniqueness is enforced. A score correction establishes an offset from the current task total, so future solves and breaks still affect the score. Solved-task corrections survive rechecks; a fresh accepted submission for that task returns it to normal verdict tracking. Corrections never prevent solving other tasks later.
 
 The optional repeat-submission charge is disabled by default. Enable it and choose the percentage in administration. Submitting a currently green task then costs `ceil(task score * percentage / 100)` points, with confirmation before the job is queued. The charge occurs once at queue admission, even if the new code fails; retries by workers do not charge again. Runs, automatic rechecks, rejected admission requests and submissions to currently broken/unsolved tasks are free. Charges persist across rechecks and remain part of the score if the setting is later disabled. The frontend warns on green tasks, while the API independently requires explicit acceptance whenever a charge applies.
 
@@ -89,8 +89,9 @@ distinct-player count. Administration can disable solution notifications, show
 breaker identities, or switch impact disclosure between usernames, count and
 hidden. These policies are applied by the API to existing history too. A failed
 recheck of an ever-accepted submission is shown as `BROKEN`, with the underlying
-judge verdict retained separately. A task stays solved while any of that player's
-solutions still passes, subject to explicit administrative corrections.
+judge verdict retained separately. A task stays solved while that player's
+active solution passes, subject to explicit administrative corrections. Sample
+runs and private-submission access errors do not create notification records.
 
 Breaking credit uses separate comparisons against the immutable worlds before
 and after a publication. It does not assume the last publisher caused every
@@ -98,6 +99,61 @@ failure observed by a later recheck. Pending comparison storage is bounded and
 backpressure can temporarily defer new publications while workers catch up.
 History is limited to the most recent 500 entries per account; reopening the site
 does not replay old popup animations. Effects respect reduced-motion preferences.
+
+## Performance
+
+Administration → Performance reads `/api/admin/performance`. It shows live and
+busy workers, their last heartbeat and recent wall-time occupancy, foreground
+queue capacity, pending background work, waiting ages, completed-claim throughput,
+queue wait/execution timings and infrastructure errors. Run, Submit, live rechecks,
+causal comparisons and administrative restores have separate rows. Worker occupancy
+is time spent processing claims, including database waits and sandbox execution;
+it is not CPU usage. A causal claim processes one candidate against two worlds.
+Judge rejections such as a wrong answer are completed work, not infrastructure errors.
+
+The dashboard polls every 10 seconds while open; queue snapshots are cached for
+5 seconds per API process. Each worker sends one heartbeat every 10 seconds using
+an independent connection without the publication lock. After 35 seconds without
+a heartbeat it is shown as offline, which may also indicate database connectivity
+trouble. Abruptly exited workers remain visible as stale entries for up to a day;
+graceful exits remove their heartbeat. After an upgrade, old workers without
+heartbeat support are not discoverable: update all workers to this release.
+
+Judge timings update one fixed-size minute/mode aggregate in the existing fenced
+commit transaction, including each causal comparison slice. No metrics insert
+is made per test, and no per-submission telemetry history is retained. Discarded
+stale-lease work does not count as a completed sample; worker occupancy still
+includes that time. Queue summaries use indexed lightweight fields and do not
+deserialize completed job results or source. Minute aggregates and stale worker
+rows expire after 24 hours, with cleanup every five minutes from worker heartbeats
+and during normal maintenance. Timings cover the current and previous four minute
+buckets (roughly 4–5 minutes); throughput divides their counts by five minutes.
+Means describe observed completed claims, while current queue ages describe work
+still waiting. Percentiles are approximate histogram bounds; the dashboard shows
+`≥` when the percentile exceeds the final seven-day bucket. No ETA is promised.
+Synchronize VPN hosts' clocks for cross-host queue waiting times. Execution
+duration uses the worker's monotonic clock.
+
+HTTP counters live only in API memory, with at most 60 one-second buckets and
+fixed latency histograms: no paths, identities, source or request bodies are
+retained. They cover the last 60 seconds, reset on restart and describe the API
+process identified by PID, rather than all replicas. They include accepted
+Run/Submit admissions, 429 responses, queue/cooldown/audit-backlog refusals,
+HTTP 4xx/5xx counts and response latency. The database probe measures one `SELECT 1`
+round trip on an already authenticated connection, not total database or host load.
+Authentication is checked on every request even when queue metrics are cached.
+
+Two workers execute at most two claims concurrently. A test of 200 players sending
+code every three seconds offers about 67 foreground jobs per second before
+publication-triggered rechecks and causal comparisons. Read-only requests do not
+have that cost. Compare admissions with Run/Submit completions, current queue age
+and background work when tuning cooldowns or worker count. A higher queue limit
+only absorbs a longer burst; it does not increase execution throughput. Test
+additional workers gradually: each worker is capped at one CPU and 384 MiB by the
+default Compose files, while competing publications can cause world-version
+retries. Persistent overload needs a lower admission rate or more measured
+processing capacity. Stop old workers before upgrading API/schema and restart
+all workers from the same release; preserve the database volume.
 
 ## Execution boundary
 
@@ -107,8 +163,28 @@ Resource exhaustion produces a rejected verdict; language-specific cases such as
 
 Contract checking combines restricted contract bodies and bounded invariant probes. As permitted by the spec, this is testing of free-form functions, not a proof for every possible input. Administrators can disable individual override operations. Avoid claiming arbitrary hostile overrides are mathematically verified.
 
+The updated stdlib checks add fresh unpredictable samples to the fixed boundary
+corpus, enforce the shared `empty`/`length` and `concat`/`length` conditions, and
+require sampled witnesses for both results of each applicable `truthy` override.
+`__builtin_contains__(container, value)` is available inside stdlib definitions
+only; it bypasses user membership and equality overrides. See
+[`DECISIONS.md`](../server/langwarsscript/DECISIONS.md) for the bounded checking
+policy and deliberate compatibility choices.
+
+`contains` overrides are disabled in new default policies. On upgrade, the exact
+old factory policy also follows that default once; custom policies are retained.
+Administrators can opt back in, and later restarts preserve that choice. Existing
+published overrides remain until replaced or restored. If an old operator fails
+new contracts, use the administrator restore action, possibly for related
+operations together. The language revision queues a one-time read-only sweep of
+active solutions; it does not delete historical submissions or definitions.
+
 The 50–150 concurrent-user target is an architectural sizing goal. CPU-heavy submissions, world size, and rejudge fan-out determine actual throughput. Benchmark representative solutions on your hardware, use queue capacity and cooldown controls to balance demand, and track worker restarts and PostgreSQL latency.
 
 For a bounded read-only HTTP check, run `python scripts/load_probe.py --clients 150 --requests 300`. This probes public API reads, not 150 simultaneous interpreter executions. The configured workers and queue deliberately limit concurrent execution independently of connected browsers.
 
-Schedule `docker compose exec -T api python -m server.maintenance --job-days 7 --rejected-days 30 --audit-days 180` daily to remove expired sessions, old throttle entries, completed jobs, old rejected attempts, and old audit records. Ever-accepted submission history is retained because it can be rechecked after world changes.
+Schedule `docker compose exec -T api python -m server.maintenance --job-days 7 --rejected-days 30 --audit-days 180 --recheck-days 90` daily to remove expired sessions, old throttle entries, completed jobs, old rejected attempts, old audit records, and old administrative judge runs. Judge history is also capped at 200 runs per target submission. Ever-accepted submission history is retained; active entries can be rechecked after world changes. Judge logs start with this release and cannot reconstruct older executions.
+
+`defaultTaskNameLimit` sets the cumulative distinct-name budget per player/task (30 by default). A task's nullable `namePublishLimit` and `coreOverrideLimit` inherit global limits; explicit values override them. Custom identifiers include function names, variables, parameters and references, consistently with the account budget. Only accepted publications spend names; old rechecks bypass later tightened publication limits. The task workspace shows account and task usage alongside the effective limits.
+
+On upgrade, retained job/submission fees are attributed to tasks without double counting; fees whose historical evidence has already been deleted stay in the account total only. Startup selects one active accepted publication per player/task and recalculates scores without deleting history or world state. Stop old workers before the upgrade and resume only workers of this release.

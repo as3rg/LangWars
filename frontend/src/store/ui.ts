@@ -39,7 +39,7 @@ export interface Toast {
   kind: ToastKind
   message: string
   notification?: UserNotification
-  effect?: 'fireworks' | 'destruction'
+  effect?: 'fireworks' | 'destruction' | 'breaking'
 }
 
 interface ToastState {
@@ -58,7 +58,7 @@ export const useToastStore = create<ToastState>((set, get) => ({
   delivered: new Set(),
   push: (kind, message, notification) => {
     const id = toastSerial++
-    const effect = notification?.kind === 'accepted' || notification?.kind === 'repaired' ? 'fireworks' : notification?.kind === 'broken' ? 'destruction' : undefined
+    const effect = notification?.kind === 'accepted' || notification?.kind === 'repaired' ? 'fireworks' : notification?.kind === 'broken' ? 'destruction' : notification?.kind === 'breaking' ? 'breaking' : undefined
     set((state) => ({ toasts: [...state.toasts.slice(-3), { id, kind, message, notification, effect }] }))
     window.setTimeout(() => get().dismiss(id), 4800)
   },

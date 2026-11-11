@@ -33,7 +33,7 @@ def schedule(tx, before, after, submission, candidate_ids):
         tx.put("break_candidates", key + ":" + str(index), {"submissionId": identifier, "userId": identifier})
     tx.put("break_audits", key, record)
     job = {"id": "recheck_audit_" + key, "mode": "break_audit", "auditId": key, "userId": submission["userId"], "createdAt": iso()}
-    tx.execute("INSERT INTO jobs(id,user_id,status,created,data) VALUES(?,?,'queued',?,?)", (job["id"], job["userId"], time.time(), dumps(job)))
+    tx.execute("INSERT INTO jobs(id,user_id,status,created,data,mode) VALUES(?,?,'queued',?,?,'break_audit')", (job["id"], job["userId"], time.time(), dumps(job)))
 
 
 def process(store, job):
@@ -52,15 +52,17 @@ def process(store, job):
         source = tx.get("submissions", audit["submissionId"])
         snapshots = tx.get("break_snapshots", audit["id"])
     before_pass = after_pass = None
+    comparisons = []
     if (victim and task and source and snapshots and
             audit["taskHashes"].get(task["id"]) == fingerprint(task)):
         outcomes = []
         for world in (snapshots["before"], snapshots["after"]):
             options = options_for(world, task)
             options.update(read_only=True, overlay_names=[name for name, owner in world.get("owners", {}).items() if owner != victim["id"]],
-                           allowed_words=None, max_name_length=None, deny_words=[],
+                           allowed_words=None, max_name_length=None, max_names=None, deny_words=[],
                            permitted_overrides=["eq", "cmp", "cast", "get", "set", "length", "contains", "empty", "push_back", "truthy", "concat"], max_overrides=1000)
             result = sandbox({"code": victim["code"], "tests": task["tests"], "snapshot": world["snapshot"], "options": options})
+            comparisons.append((world["version"], result))
             outcomes.append(result.get("status") == "OK" if isinstance(result, dict) and not result.get("sandboxError") else None)
         before_pass, after_pass = outcomes
     with store.transaction() as tx:
@@ -73,9 +75,16 @@ def process(store, job):
         source = tx.get("submissions", audit["submissionId"])
         recipient = tx.get("users", victim["userId"]) if victim else None
         current_victim = tx.get("submissions", victim["id"]) if victim else None
-        if source and recipient and not recipient.get("banned") and current_victim and tx.get("tasks", victim["taskId"]) and fingerprint(tx.get("tasks", victim["taskId"])) == audit["taskHashes"].get(victim["taskId"]):
+        current_task = tx.get("tasks", victim["taskId"]) if victim else None
+        task_unchanged = current_task and fingerprint(current_task) == audit["taskHashes"].get(victim["taskId"])
+        if current_victim and task_unchanged:
+            from .recheck_history import record
+            for kind, (version, result) in zip(("causal_before", "causal_after"), comparisons):
+                record(tx, job, current_victim, current_task, result, kind, world_version=version,
+                       previous_status=victim["status"], cause_submission_id=audit["submissionId"])
+        if source and recipient and not recipient.get("banned") and current_victim and task_unchanged:
             fields = {"taskId": task["id"], "taskTitle": task["title"], "submissionId": victim["id"],
-                      "occurredAt": audit["createdAt"], "historical": world["version"] != audit["version"]}
+                      "occurredAt": audit["createdAt"], "historical": world["version"] != audit["version"] or not current_victim.get("active", True)}
             if before_pass is True and after_pass is False:
                 event(tx, victim["userId"], "broken", "broken:" + audit["id"] + ":" + victim["id"], actorUserId=source["userId"], **fields)
                 if victim["userId"] != source["userId"]:
@@ -100,7 +109,10 @@ def process(store, job):
             tx.delete("break_snapshots", latest["id"])
             finish(tx, job, result={"complete": True})
         else:
+            from .telemetry import record_claim
+            record_claim(tx, job)
             tx.put("break_audits", latest["id"], latest)
             queued = dict(job)
             queued.pop("lease", None)
+            queued.pop("_telemetryMonotonic", None)
             tx.execute("UPDATE jobs SET status='queued',created=?,lease=0,data=? WHERE id=? AND lease=?", (time.time(), dumps(queued), job["id"], job["lease"]))

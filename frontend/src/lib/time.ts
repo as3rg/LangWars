@@ -1,4 +1,5 @@
 import { t, useLocale } from './i18n'
+import { formatNumber } from './numbers'
 
 export function formatRelative(iso?: string): string {
   if (!iso) return '—'
@@ -29,8 +30,8 @@ export function formatDateTime(iso?: string): string {
 }
 
 export function formatDuration(ms: number): string {
-  if (ms < 1000) return t('{count} ms', { count: ms })
-  return t('{count} s', { count: (ms / 1000).toFixed(2) })
+  if (ms < 1000) return t('{count} ms', { count: formatNumber(ms) })
+  return t('{count} s', { count: formatNumber(ms / 1000) })
 }
 
 export function countdown(iso?: string): string {

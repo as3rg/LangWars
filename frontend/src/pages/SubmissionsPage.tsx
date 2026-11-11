@@ -17,7 +17,7 @@ import {
   StatusPill,
 } from '@/components/ui'
 import { formatRelative } from '@/lib/time'
-import { toast } from '@/store/ui'
+import { formatNumber } from '@/lib/numbers'
 
 export function SubmissionsPage() {
   useLocale()
@@ -115,10 +115,8 @@ export function SubmissionsPage() {
                     return (
                       <tr
                         key={submission.id}
-                        className={clsx('submission-row', !canOpen && 'private')}
-                        onClick={() =>
-                          canOpen ? setOpen(submission.id) : toast('info', 'Code is private to its author.')
-                        }
+                        className={clsx('submission-row', !canOpen && 'private', submission.active === false && 'submission-inactive')}
+                        onClick={() => setOpen(submission.id)}
                       >
                         <td className="mono-cell">{formatRelative(submission.createdAt)}</td>
                         <td>
@@ -137,12 +135,12 @@ export function SubmissionsPage() {
                         </td>
                         {showImpact && <td><BreakImpactBadge impact={submission.breakImpact} /></td>}
                         <td className="score-cell" style={{ textAlign: 'right' }}>
-                          {submission.score}
+                          {formatNumber(submission.score)}
                         </td>
                         <td className="mono-cell">
                           {submission.testsPassed}/{submission.testsTotal}
                         </td>
-                        <td className="mono-cell">{submission.durationMs} {t("ms")}</td>
+                        <td className="mono-cell">{formatNumber(submission.durationMs)} {t("ms")}</td>
                         <td className="mono-cell">{submission.languageVersion}</td>
                         <td className="mono-cell dim">{canOpen ? <button className="filter-chip" onClick={(event) => { event.stopPropagation(); setOpen(submission.id) }}>{t("Open")}</button> : t("private")}</td>
                       </tr>
@@ -157,7 +155,7 @@ export function SubmissionsPage() {
 
           <div className="row-between wrap mt-16">
             <span className="rating-note" style={{ marginTop: 0 }}>
-              {t("Rows are clickable only for your own submissions (admins can open all).")}</span>
+              {t('Dimmed submissions are no longer in play.')}</span>
             <LinkButton to="/tasks" size="sm">
               {t("Solve something")}</LinkButton>
           </div>

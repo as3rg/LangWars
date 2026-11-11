@@ -1,12 +1,15 @@
 ﻿from .store import iso
 
 OPERATIONS = ["eq", "cmp", "cast", "get", "set", "length", "contains", "empty", "push_back", "truthy", "concat"]
+DEFAULT_OVERRIDES = tuple(operation for operation in OPERATIONS if operation != "contains")
+OVERRIDE_DEFAULTS_REVISION = "contains-opt-in-2026-11"
+LANGUAGE_REVISION = "stdlib-invariants-2026-11"
 WORDS = "a b c x y z n i j k in out input output value values result answer solve main first second third left right total sum count index item items number numbers list dictionary key keys text string word words length size current next previous start end low high middle maximum minimum max min target found data temporary temp copy accumulator product difference double triple square reverse palindrome sort sorted compare equal add remove update test cat dog hello world zero one two three four five six seven eight nine ten new old global local shared state safe break function custom default integer boolean truth false true sign absolute positive negative factorial fibonacci power limit loop step position element collection array map pair pairs front back head tail separator space character characters unique merge filter reduce search swap append push back empty contains get set cast truthy concat eq cmp builtin solution mirror forever source destination remainder divisor dividend quotient prefix suffix amount return keep change core operation alpha beta gamma delta echo identity calculate stable guard helper mark label jump from before after mutable public private d e f g h l m o p q r s t u v w cyclic range window tally running median ordered medians cursor pass".split()
 
 
 def initial_world():
-    return {"version": 0, "languageRevision": "no-swap-2026-11", "snapshot": {"variables": {}, "functions": {}, "last": {}}, "owners": {}, "settings": {
-        "registrationMode": "invite", "defaultNameLimit": 100, "maxNameLength": 48,
+    return {"version": 0, "languageRevision": LANGUAGE_REVISION, "overrideDefaultsRevision": OVERRIDE_DEFAULTS_REVISION, "snapshot": {"variables": {}, "functions": {}, "last": {}}, "owners": {}, "settings": {
+        "registrationMode": "invite", "defaultNameLimit": 100, "defaultTaskNameLimit": 30, "maxNameLength": 48,
         "worldVisibility": {
             "variables": {"names": "public", "values": "admin_only"},
             "functions": {"names": "public", "values": "admin_only"},
@@ -15,7 +18,7 @@ def initial_world():
         "resubmitPenaltyEnabled": False, "resubmitPenaltyPercent": 5,
         "solutionNotificationsEnabled": True, "showBreakerIdentity": False, "breakImpactVisibility": "count",
         "allowedWords": sorted(set(WORDS)), "denyWords": [],
-        "permittedOverrides": OPERATIONS, "defaultCoreOverrideLimit": 2, "maxQueuedJobs": 300,
+        "permittedOverrides": list(DEFAULT_OVERRIDES), "defaultCoreOverrideLimit": 2, "maxQueuedJobs": 300,
     }}
 
 
@@ -53,7 +56,7 @@ def task(slug, title, difficulty, score, statement, parameters, tests, types, en
             "constraints": [*common_constraints, *constraints], "translations": translations,
             "examples": examples,
             "starterCode": starter, "entryPoint": entry, "timeLimitMs": 1000,
-            "coreOverrideLimit": 2, "allowedWords": None, "tests": tests}
+            "coreOverrideLimit": None, "namePublishLimit": None, "allowedWords": None, "tests": tests}
 
 
 def initial_tasks():

@@ -38,6 +38,7 @@ class NotificationConcurrencyTests(unittest.TestCase):
             for kind in ("notifications", "break_audits", "break_snapshots", "break_candidates", "submissions"):
                 tx.execute("DELETE FROM records WHERE kind=?", (kind,))
             tx.execute("DELETE FROM dependencies")
+            tx.execute("DELETE FROM recheck_runs")
 
     def test_concurrent_event_retries_preserve_single_entry_and_read_state(self):
         from server.notifications import event
@@ -107,3 +108,5 @@ class NotificationConcurrencyTests(unittest.TestCase):
             for kind in ("break_audits", "break_snapshots", "break_candidates"):
                 self.assertEqual(tx.list(kind), [], kind)
             self.assertEqual(tx.execute("SELECT status FROM jobs WHERE id=?", (job["id"],)).fetchone()[0], "completed")
+            rows = tx.execute("SELECT data FROM recheck_runs WHERE submission_id='victim-sub'").fetchall()
+            self.assertEqual(len(rows), 2, "Duplicate fenced workers must not duplicate either causal run")

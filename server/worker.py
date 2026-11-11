@@ -68,7 +68,8 @@ def options_for(world, task):
     return {"allowed_words": task.get("allowedWords") if task.get("allowedWords") is not None else settings["allowedWords"],
             "max_name_length": settings["maxNameLength"],
             "deny_words": settings["denyWords"], "permitted_overrides": settings["permittedOverrides"],
-            "max_overrides": task.get("coreOverrideLimit", settings["defaultCoreOverrideLimit"]),
+            "max_overrides": task.get("coreOverrideLimit") if task.get("coreOverrideLimit") is not None else settings["defaultCoreOverrideLimit"],
+            "max_names": task.get("namePublishLimit") if task.get("namePublishLimit") is not None else settings.get("defaultTaskNameLimit", 30),
             "max_steps": max(10000, min(task.get("timeLimitMs", 1000) * 200, 1000000)),
             "max_cells": 100000, "timeout_ms": task.get("timeLimitMs", 1000)}
 
@@ -124,7 +125,7 @@ def schedule_rechecks(tx, changes, world, exclude=None, all_submissions=False, t
     for sub in candidates:
         if not sub:
             continue
-        if sub["id"] == exclude or not sub.get("everAccepted"):
+        if sub["id"] == exclude or not sub.get("everAccepted") or not sub.get("active", True):
             continue
         if not all_submissions and not core_changed and not names.intersection(sub.get("dependencies", [])):
             continue
@@ -135,7 +136,7 @@ def schedule_rechecks(tx, changes, world, exclude=None, all_submissions=False, t
         if cause_submission_id:
             job["causeSubmissionId"] = cause_submission_id
         # A newer world invalidates any in-flight lease, so its result cannot overwrite this request.
-        tx.execute("INSERT INTO jobs(id,user_id,status,created,lease,data) VALUES(?,?,'queued',?,0,?) ON CONFLICT(id) DO UPDATE SET status='queued',created=excluded.created,lease=0,data=excluded.data", (job_id, sub["userId"], now, dumps(job)))
+        tx.execute("INSERT INTO jobs(id,user_id,status,created,lease,data,mode) VALUES(?,?,'queued',?,0,?,'recheck') ON CONFLICT(id) DO UPDATE SET status='queued',created=excluded.created,lease=0,data=excluded.data,mode=excluded.mode", (job_id, sub["userId"], now, dumps(job)))
         scheduled.append(sub["id"])
     return scheduled
 
@@ -152,6 +153,7 @@ def finish(tx, job, result=None, error=None):
     if not lease_valid(tx, job):
         return False
     completed = dict(job)
+    completed.pop("_telemetryMonotonic", None)
     completed.pop("code", None)
     completed["finishedAt"] = iso()
     if result is not None:
@@ -159,6 +161,9 @@ def finish(tx, job, result=None, error=None):
     if error:
         completed["error"] = error
     updated = tx.execute("UPDATE jobs SET status=?,data=? WHERE id=? AND lease=?", ("failed" if error else "completed", dumps(completed), job["id"], job["lease"]))
+    if updated.rowcount == 1:
+        from .telemetry import record_claim
+        record_claim(tx, job, failed=bool(error))
     return updated.rowcount == 1
 
 
@@ -246,6 +251,9 @@ def process_job(store, job):
             if job["mode"] == "recheck" and not sub:
                 finish(tx, job, error={"code": "NOT_FOUND", "message": "Submission no longer exists"})
                 return
+            if sub and not sub.get("active", True):
+                finish(tx, job, result={"status": "RETIRED", "submissionId": sub["id"]})
+                return
         options = options_for(world, task)
         if sub:
             options.update(read_only=True, overlay_names=[name for name, owner in world.get("owners", {}).items() if owner != sub["id"]])
@@ -255,11 +263,13 @@ def process_job(store, job):
             options["deny_words"] = []
             options["permitted_overrides"] = ["eq", "cmp", "cast", "get", "set", "length", "contains", "empty", "push_back", "truthy", "concat"]
             options["max_overrides"] = 1000
+            options["max_names"] = None
         tests = [t for t in task["tests"] if not t.get("hidden")] if job["mode"] == "run" else task["tests"]
         if prohibited(job["code"], world["settings"]["denyWords"]) and not sub:
             result = failure("Code contains a word blocked by the platform", code="DENIED_WORD")
         else:
             result = sandbox({"code": job["code"], "tests": tests, "snapshot": world["snapshot"], "options": options})
+            sandbox_result = result
             if not isinstance(result, dict) or result.get("sandboxError"):
                 result = failure("Execution exceeded the worker budget", "TLE", "EXECUTION_BUDGET")
         result.setdefault("tests", [])
@@ -268,6 +278,9 @@ def process_job(store, job):
         names = set(result.get("names", []))
         if not sub and len(set(user.get("claimedNames", [])) | names) > user["nameLimit"]:
             result = failure(f"This program exceeds your limit of {user['nameLimit']} unique names", code="NAME_LIMIT")
+        task_names = set(user.get("taskClaimedNames", {}).get(task["id"], []))
+        if not sub and len(task_names | names) > options["max_names"]:
+            result = failure(f"This task permits at most {options['max_names']} unique published names", code="TASK_NAME_LIMIT")
         if job["mode"] == "submit" and result.get("status") == "OK":
             errors = publication_errors(world, result, task)
             if errors:
@@ -292,6 +305,12 @@ def process_job(store, job):
                 return
             if sub:
                 from .notifications import reconcile_solution
+                from .recheck_history import record
+                sub = tx.get("submissions", sub["id"])
+                if not sub or not sub.get("active", True):
+                    finish(tx, job, result={"status": "RETIRED", "submissionId": job["submissionId"]})
+                    return
+                record(tx, job, sub, task, sandbox_result, world_version=latest["version"], previous_status=sub["status"], cause_submission_id=job.get("causeSubmissionId"))
                 passing = result["status"] == "OK"
                 sub.setdefault("notificationState", {"passing": sub["status"] == "OK", "version": sub.get("worldVersion", 0)})
                 sub.update(status="OK" if passing else "BROKEN", verdictStatus=result["status"], tests=redact_tests(result, task)["tests"], diagnostics=result["diagnostics"],
@@ -317,11 +336,14 @@ def process_job(store, job):
                           "testsPassed": sum(bool(t.get("passed")) for t in result["tests"]), "testsTotal": len(result["tests"]),
                           "tests": clean["tests"], "diagnostics": result["diagnostics"], "stdout": result["stdout"],
                           "dependencies": result.get("dependencies", []), "names": sorted(names), "everAccepted": result["status"] == "OK",
-                          "worldVersion": latest["version"], "penaltyPoints": job.get("penaltyPoints", 0), "verdictStatus": result["status"]}
+                          "worldVersion": latest["version"], "penaltyPoints": job.get("penaltyPoints", 0), "verdictStatus": result["status"], "active": False,
+                          "jobId": job["id"], "publishedAt": iso()}
             if result["status"] == "OK":
                 # Quotas and account state can change independently of the namespace version.
                 if len(set(latest_user.get("claimedNames", [])) | names) > latest_user["nameLimit"]:
                     submission.update(status="CE", verdictStatus="CE", score=0, everAccepted=False, diagnostics=[diagnostic("Your unique-name limit changed during execution", "NAME_LIMIT")])
+                elif len(set(latest_user.get("taskClaimedNames", {}).get(task["id"], [])) | names) > options["max_names"]:
+                    submission.update(status="CE", verdictStatus="CE", score=0, everAccepted=False, diagnostics=[diagnostic("This task's published-name budget is exhausted", "TASK_NAME_LIMIT")])
                 else:
                     previous_world = copy.deepcopy(latest)
                     changes = result.get("changes", {})
@@ -329,11 +351,18 @@ def process_job(store, job):
                     latest["snapshot"] = merged_snapshot(latest["snapshot"], changes)
                     latest["version"] += 1
                     submission["worldVersion"] = latest["version"]
+                    submission["publicationVersion"] = latest["version"]
+                    submission["active"] = True
+                    for previous in tx.list("submissions", user_id=user["id"], task_id=task["id"], accepted=1):
+                        if previous.get("active", True):
+                            previous["active"] = False
+                            tx.put("submissions", previous["id"], previous)
                     submission["notificationState"] = {"passing": True, "version": latest["version"]}
                     for name in set(changes.get("variables", {})) | set(changes.get("functions", {})):
                         latest["owners"][name] = submission_id
                         latest.setdefault("ownerUsers", {})[name] = user["id"]
                     latest_user["claimedNames"] = sorted(set(latest_user.get("claimedNames", [])) | names)
+                    latest_user.setdefault("taskClaimedNames", {})[task["id"]] = sorted(set(latest_user.get("taskClaimedNames", {}).get(task["id"], [])) | names)
                     latest_user.get("solvedOverrides", {}).pop(task["id"], None)
                     tx.put("users", user["id"], latest_user)
                     tx.save_world(latest)
@@ -355,6 +384,9 @@ def main():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     store = Store()
     store.initialize()
+    from .telemetry import WorkerHeartbeat, record_claim
+    heartbeat = WorkerHeartbeat(store)
+    heartbeat.start()
     log.info("Worker ready")
     while True:
         job = None
@@ -363,6 +395,7 @@ def main():
             if not job:
                 time.sleep(0.5)
                 continue
+            heartbeat.begin(job)
             process_job(store, job)
         except KeyboardInterrupt:
             break
@@ -372,14 +405,20 @@ def main():
                 try:
                     with store.transaction() as tx:
                         if job.get("mode") == "break_audit" and lease_valid(tx, job):
+                            record_claim(tx, job, failed=True)
                             retry = dict(job)
                             retry.pop("lease", None)
+                            retry.pop("_telemetryMonotonic", None)
                             tx.execute("UPDATE jobs SET status='queued',created=?,lease=0,data=? WHERE id=? AND lease=?", (time.time(), dumps(retry), job["id"], job["lease"]))
                         else:
                             finish(tx, job, error={"code": "WORKER_ERROR", "message": "The worker could not complete this request"})
                 except Exception:
                     log.exception("Could not finalize failed job; its lease will recover")
             time.sleep(1)
+        finally:
+            if job:
+                heartbeat.end()
+    heartbeat.close()
 
 
 if __name__ == "__main__":

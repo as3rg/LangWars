@@ -9,6 +9,7 @@ import { useSession, useLogout } from '@/api/hooks'
 import { useUiStore, toast } from '@/store/ui'
 import { useLocale, t } from '@/lib/i18n'
 import { useEffect } from 'react'
+import { formatNumber } from '@/lib/numbers'
 
 const NAV = [
   { to: '/', label: 'News', end: true },
@@ -16,6 +17,7 @@ const NAV = [
   { to: '/submissions', label: 'Submissions' },
   { to: '/rating', label: 'Rating' },
   { to: '/world', label: 'World' },
+  { to: '/guide', label: 'Guide' },
 ]
 
 export function Layout() {
@@ -77,7 +79,7 @@ export function Layout() {
                   <span className="mono" style={{ fontSize: 12 }}>
                     {user.username}
                   </span>
-                  <span className="rating">{user.rating}</span>
+                  <span className="rating">{formatNumber(user.rating)}</span>
                 </Link>
                 <button className="icon-btn" onClick={handleLogout} aria-label={t("Log out")} title={t("Log out")}>
                   <LogOut size={15} />

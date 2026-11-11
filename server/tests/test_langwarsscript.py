@@ -178,8 +178,8 @@ class LanguageTests(unittest.TestCase):
         self.assert_ok("helper(); return helper;", "cat", prefix='fn helper(){return "cat";}')
 
     def test_builtin_concat_bypasses_overrides_and_is_allowed_in_contracts(self):
-        override = '@concat fn <string,string> change(first,second){return "changed";}'
-        self.assert_ok('return concat("a","b");', "changed", prefix=override)
+        override = '@concat fn <string,string> change(first,second){return __builtin_concat__(second,first);}'
+        self.assert_ok('return concat("a","b");', "ba", prefix=override)
         cast = '@cast(string) fn <int> original(number){return __builtin_concat__("a","b");}'
         self.assert_ok('return string(1);', "ab", prefix=override + cast)
         self.assert_ok('return concat("a","b");', "ab", prefix='@concat fn <string,string> change(first,second){return __builtin_concat__(first,second);}')
