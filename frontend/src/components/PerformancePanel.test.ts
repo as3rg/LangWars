@@ -16,7 +16,8 @@ function snapshot(): PerformanceSnapshot {
     workers: { online: 0, busy: 0, stale: 0, items: [] },
     queue: { queued: 0, running: 0, expired: 0, capacity: 10, foregroundQueued: 0, foregroundRunning: 0, admissionUsed: 0, meanWaitSeconds: null, oldestWaitSeconds: null, byMode: [] },
     activity: { completed: 0, failed: 0, perMinute: 0, meanWaitMs: null, p95WaitMs: null, meanExecutionMs: null, p95ExecutionMs: null, byMode: [] },
-    audits: { pending: 0, remainingCandidates: 0, capacity: 32 },
+    admission: { runAllowed: true, submitAllowed: true, reasons: [] },
+    audits: { pending: 0, remainingCandidates: 0, capacity: 32, oldestPendingSeconds: null },
     api: { processId: 7, uptimeSeconds: 20, windowSeconds: 60, requests: 0, errors: 0, rejected: 0, rateLimited: 0, queueFull: 0, notificationBacklog: 0, cooldowns: 0, requestsPerSecond: 0, runsAccepted: 0, submissionsAccepted: 0, admissionsPerSecond: 0, meanLatencyMs: null, p95LatencyMs: null, inFlight: 0 },
     store: { probeMs: 1.0000000004 },
   }
@@ -44,6 +45,7 @@ describe('performance overview', () => {
     useLocale.setState({ locale: 'en' })
     const data = snapshot()
     data.queue = { ...data.queue, admissionUsed: 10, foregroundQueued: 9, foregroundRunning: 1, queued: 50, running: 2, meanWaitSeconds: 30, oldestWaitSeconds: 42, byMode: [{ mode: 'break_audit', queued: 41, running: 1, meanWaitSeconds: 30, oldestWaitSeconds: 42 }] }
+    data.admission = { runAllowed: false, submitAllowed: false, reasons: ['QUEUE_FULL'] }
     data.activity = { ...data.activity, completed: 75, perMinute: 15, meanWaitMs: 1500, p95WaitMs: 4000, byMode: [{ mode: 'break_audit', completed: 10, failed: 0, perMinute: 2, meanWaitMs: 1500, p95WaitMs: 4000, meanExecutionMs: 10.000000004, p95ExecutionMs: 20 }] }
     data.workers = { online: 1, busy: 1, stale: 1, items: [
       { id: 'one', hostname: '<worker-one>', pid: 8, lastSeen: data.generatedAt, state: 'busy', mode: 'submit', busySeconds: 2, utilizationPercent: 98.000000004 },
@@ -77,6 +79,20 @@ describe('performance overview', () => {
     options = vi.mocked(useQuery).mock.calls.at(-1)![0]
     expect(options.queryKey).toEqual(['admin', 'performance', 'session-two', 'user'])
     expect(options.enabled).toBe(false)
+  })
+
+  it.each(['en', 'ru'] as const)('shows the independent Submit gate while foreground slots remain free in %s', (locale) => {
+    useLocale.setState({ locale })
+    const data = snapshot()
+    data.queue = { ...data.queue, admissionUsed: 3, capacity: 300, foregroundQueued: 3, queued: 35 }
+    data.admission = { runAllowed: true, submitAllowed: false, reasons: ['NOTIFICATION_BACKLOG'] }
+    data.audits = { pending: 32, capacity: 32, remainingCandidates: 2295, oldestPendingSeconds: 201 }
+    const html = renderToStaticMarkup(createElement(PerformanceView, { data }))
+    expect(html).toContain('3 / 300')
+    expect(html).toContain(locale === 'en' ? 'Submit is paused' : 'Приём посылок приостановлен')
+    expect(html).toContain('(32/32)')
+    expect(html).toContain(locale === 'en' ? 'Sample run · Available' : 'Проверка примеров · Доступно')
+    expect(html).not.toContain('queue is full')
   })
 
   it('keeps the last snapshot visibly stale on a refresh error', () => {

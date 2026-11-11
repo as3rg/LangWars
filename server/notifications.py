@@ -9,7 +9,7 @@ GENERIC_KINDS = {"info", "success", "error"}
 MAX_HISTORY = 500
 PUBLIC_EVENT_FIELDS = {"id", "kind", "createdAt", "read", "taskId", "taskTitle", "submissionId", "verdictStatus", "occurredAt", "historical"}
 EVENT_DETAILS = PUBLIC_EVENT_FIELDS - {"id", "kind", "createdAt", "read"}
-PRIVATE_SUBMISSION_FIELDS = {"brokenUserIds", "brokenSubmissionIds", "impactedUserIds", "notificationState", "actorUserId", "actorSubmissionId", "causeSubmissionId", "breakAuditId", "before", "after", "snapshot", "breaker", "breakImpact"}
+PRIVATE_SUBMISSION_FIELDS = {"dependencyRevision", "brokenUserIds", "brokenSubmissionIds", "impactedUserIds", "notificationState", "actorUserId", "actorSubmissionId", "causeSubmissionId", "breakAuditId", "before", "after", "snapshot", "breaker", "breakImpact"}
 LEGACY_PRIVATE_NOTICES = {"Code is private to its author.", "Код доступен только автору."}
 LEGACY_RUN_NOTICE = re.compile(r"(?:Sample run|Примеры): (?:OK|FAIL|CE|TLE|MLE|RE|WRONG_ANSWER|BROKEN)")
 
