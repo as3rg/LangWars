@@ -70,6 +70,7 @@ def options_for(world, task):
             "deny_words": settings["denyWords"], "permitted_overrides": settings["permittedOverrides"],
             "max_overrides": task.get("coreOverrideLimit") if task.get("coreOverrideLimit") is not None else settings["defaultCoreOverrideLimit"],
             "max_names": task.get("namePublishLimit") if task.get("namePublishLimit") is not None else settings.get("defaultTaskNameLimit", 30),
+            "cheap_invariants": settings.get("cheapInvariantChecksEnabled", False),
             "max_steps": max(10000, min(task.get("timeLimitMs", 1000) * 200, 1000000)),
             "max_cells": 100000, "timeout_ms": task.get("timeLimitMs", 1000)}
 
@@ -110,25 +111,58 @@ def ranking(tx, user_id):
     return next((i + 1 for i, user in enumerate(users) if user["id"] == user_id), 0)
 
 
-def schedule_rechecks(tx, changes, world, exclude=None, all_submissions=False, task_id=None, cause_submission_id=None):
+def recheck_candidates(tx, changes, world, exclude=None, all_submissions=False, task_id=None, retiring=None):
+    """Select affected solutions without executing any player code under the lock."""
     names = changed_names(changes)
     core_changed = any(function.get("annotation") not in (None, "solution") for definition in changes.get("functions", {}).values() for function in (definition if isinstance(definition, list) else [definition]))
-    now = time.time()
-    if all_submissions or core_changed:
+    selective = world["settings"].get("dependencyCausalChecksEnabled", False)
+    pending = set()
+    if selective:
+        # Dispatch can change even when no source name is explicitly called.
+        for name in tuple(names):
+            for snapshot in (world["snapshot"], changes):
+                definition = snapshot.get("functions", {}).get(name)
+                for function in definition if isinstance(definition, list) else [definition]:
+                    if function and function.get("annotation") not in (None, "solution"):
+                        names.add("@" + function["annotation"])
+        if changes.get("functions") or changes.get("variables"):
+            names.add("@control")
+    if all_submissions or (core_changed and not selective):
         candidates = tx.iter_records("submissions", accepted=1, task_id=task_id)
     else:
         candidate_ids = set()
         for name in names:
             candidate_ids.update(row[0] for row in tx.execute("SELECT submission_id FROM dependencies WHERE name=?", (name,)).fetchall())
+        if selective and names:
+            # An earlier relevant publication may change which branch is read.
+            # Its graph is stale until the outstanding live recheck completes.
+            pending = {row[0][len("recheck_"):] for row in tx.execute("SELECT id FROM jobs WHERE mode='recheck' AND status IN ('queued','running')").fetchall()}
+            candidate_ids.update(pending)
+        if core_changed:
+            # Older judges did not record implicit casts or dispatch targets.
+            # Keep their previous broad behavior until a live recheck refreshes them.
+            candidate_ids.update(sub["id"] for sub in tx.iter_records("submissions", accepted=1, task_id=task_id)
+                                 if sub.get("dependencyRevision") != 1)
         candidates = (tx.get("submissions", key) for key in candidate_ids)
-    scheduled = []
     for sub in candidates:
         if not sub:
             continue
         if sub["id"] == exclude or not sub.get("everAccepted") or not sub.get("active", True):
             continue
-        if not all_submissions and not core_changed and not names.intersection(sub.get("dependencies", [])):
+        if task_id is not None and sub["taskId"] != task_id:
             continue
+        if retiring and (sub["userId"], sub["taskId"]) == retiring:
+            continue
+        legacy_core = core_changed and sub.get("dependencyRevision") != 1
+        if not all_submissions and sub["id"] not in pending and not (core_changed and (not selective or legacy_core)) and not names.intersection(sub.get("dependencies", [])):
+            continue
+        yield sub
+
+
+def schedule_rechecks(tx, changes, world, exclude=None, all_submissions=False, task_id=None, cause_submission_id=None):
+    now = time.time()
+    scheduled = []
+    for sub in recheck_candidates(tx, changes, world, exclude, all_submissions, task_id):
         job_id = "recheck_" + sub["id"]
         job = {"id": job_id, "userId": sub["userId"], "taskId": sub["taskId"], "submissionId": sub["id"],
                "code": sub["code"], "mode": "recheck", "languageVersion": sub["languageVersion"],
@@ -312,10 +346,14 @@ def process_job(store, job):
                     return
                 record(tx, job, sub, task, sandbox_result, world_version=latest["version"], previous_status=sub["status"], cause_submission_id=job.get("causeSubmissionId"))
                 passing = result["status"] == "OK"
+                if result["status"] not in ("OK", "WRONG_ANSWER"):
+                    result["dependencies"] = sorted(set(sub.get("dependencies", [])) | set(result.get("dependencies", [])))
                 sub.setdefault("notificationState", {"passing": sub["status"] == "OK", "version": sub.get("worldVersion", 0)})
                 sub.update(status="OK" if passing else "BROKEN", verdictStatus=result["status"], tests=redact_tests(result, task)["tests"], diagnostics=result["diagnostics"],
                            testsPassed=sum(bool(t.get("passed")) for t in result["tests"]), testsTotal=len(result["tests"]),
                            score=task["score"] if result["status"] == "OK" else 0, recheckedAt=iso(), worldVersion=latest["version"], dependencies=result.get("dependencies", []))
+                if isinstance(sandbox_result, dict) and sandbox_result.get("status") in ("OK", "WRONG_ANSWER"):
+                    sub["dependencyRevision"] = 1
                 tx.put("submissions", sub["id"], sub)
                 reconcile_solution(tx, sub, task)
                 refresh_ratings(tx)
@@ -323,8 +361,12 @@ def process_job(store, job):
                 return
             from .break_audits import capacity_available, schedule as schedule_audit
             from .notifications import event
-            if result["status"] == "OK" and changed_names(effective_changes(latest["snapshot"], result.get("changes", {}))) and not capacity_available(tx):
-                result = failure("Notifications are catching up; try submitting again shortly", "FAIL", "NOTIFICATION_BACKLOG")
+            invalidations = effective_changes(latest["snapshot"], result.get("changes", {}))
+            needs_audit = bool(changed_names(invalidations))
+            if needs_audit and latest["settings"].get("dependencyCausalChecksEnabled", False):
+                needs_audit = next(recheck_candidates(tx, invalidations, latest, retiring=(user["id"], task["id"])), None) is not None
+            if result["status"] == "OK" and needs_audit and not capacity_available(tx):
+                result = failure("Submissions are paused: solution comparisons are full. Try again shortly.", "FAIL", "NOTIFICATION_BACKLOG")
             before_rating = latest_user["rating"] + job.get("penaltyPoints", 0)
             before_rank = ranking(tx, user["id"])
             submission_id = uid("sub_")
@@ -336,6 +378,7 @@ def process_job(store, job):
                           "testsPassed": sum(bool(t.get("passed")) for t in result["tests"]), "testsTotal": len(result["tests"]),
                           "tests": clean["tests"], "diagnostics": result["diagnostics"], "stdout": result["stdout"],
                           "dependencies": result.get("dependencies", []), "names": sorted(names), "everAccepted": result["status"] == "OK",
+                          "dependencyRevision": 1,
                           "worldVersion": latest["version"], "penaltyPoints": job.get("penaltyPoints", 0), "verdictStatus": result["status"], "active": False,
                           "jobId": job["id"], "publishedAt": iso()}
             if result["status"] == "OK":
@@ -373,7 +416,7 @@ def process_job(store, job):
                   taskId=task["id"], taskTitle=task["title"], submissionId=submission_id, verdictStatus=submission["status"])
             refresh_ratings(tx)
             updated = tx.get("users", user["id"])
-            finish(tx, job, result={"notificationId": notice["id"], "submission": {key: val for key, val in submission.items() if key not in {"dependencies", "names", "notificationState"}},
+            finish(tx, job, result={"notificationId": notice["id"], "submission": {key: val for key, val in submission.items() if key not in {"dependencies", "dependencyRevision", "names", "notificationState"}},
                                    "ratingUpdate": {"tableId": "global", "delta": updated["rating"] - before_rating, "newScore": updated["rating"], "rank": ranking(tx, user["id"]), "rankBefore": before_rank}})
             return
     with store.transaction() as tx:

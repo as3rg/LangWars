@@ -206,6 +206,36 @@ Publication and contract checks
   exposing the override implementation's name. The backend must publish only if
   the validated world version is still current; it performs a CAS/retry transaction.
 
+Optional overload fallbacks
+
+- `cheapInvariantChecksEnabled` is an administrator-only opt-in, disabled by
+  default. It forwards `cheap_invariants` to the same sandboxed publication
+  validator. The fallback keeps all contract families, syntax restrictions,
+  actual-call guards and execution budgets, but uses four integer, three string,
+  three list and two dictionary samples. It omits fresh random and source/global
+  value augmentation, reducing quadratic and cubic relation-check work. This is
+  deliberately weaker coverage: invalid operators can pass this reduced corpus,
+  and valid operators whose truthy witnesses lie outside it can be rejected.
+  Disabling the setting restores full validation for subsequent jobs; neither
+  setting change rewrites already published state.
+- Dependency tracking records cross-type cast attempts through `@cast`, even
+  when the builtin cast is currently selected, and records selected override
+  implementation names as well as operation tokens. Functions reached through
+  `comefrom` are dependencies too; a runtime with redirects also records
+  `@control` because replacing inherited functions can alter redirect topology.
+  These are internal dependency tokens, not additional language identifiers.
+
+- `dependencyCausalChecksEnabled` is another administrator-only opt-in, disabled
+  by default. It selects live rechecks and causal comparisons using changed names,
+  old/new `@operation` tokens and the conservative `@control` token. Legacy
+  submissions without dependency revision 1 keep broad comparisons on core
+  changes until rechecked. Solutions with a queued/running live recheck remain
+  conservative candidates because their dynamic branch dependencies may be stale.
+  The enqueue audit-capacity gate is deferred to publication in this mode;
+  publication still requires comparison capacity when selected active victims
+  exist. Sandboxed before/after comparisons, attribution, privacy, fenced leases,
+  version checks and read-only rechecks retain their existing behavior.
+
 Resource and moderation boundary
 
 - Source is capped at 64 KiB and 16,384 tokens; syntactic nesting is capped at 64.

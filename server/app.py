@@ -392,10 +392,13 @@ def create_app(database_url=None):
             user = current(request, tx)
             task = find_task(tx, task_id)
             settings = world["settings"]
-            if mode == "submit":
-                from .break_audits import capacity_available
+            if mode == "submit" and not settings.get("dependencyCausalChecksEnabled", False):
+                from .break_audits import capacity_available, MAX_PENDING_AUDITS
                 if not capacity_available(tx):
-                    fail(429, "NOTIFICATION_BACKLOG", "Notifications are catching up; try again shortly", {"Retry-After": "5"})
+                    pending_audits = tx.execute("SELECT COUNT(*) FROM records WHERE kind='break_audits'").fetchone()[0]
+                    raise HTTPException(429, detail={"code": "NOTIFICATION_BACKLOG",
+                        "message": f"Submissions are paused: solution comparisons are full ({pending_audits}/{MAX_PENDING_AUDITS}). Try again shortly.",
+                        "pendingAudits": pending_audits, "capacity": MAX_PENDING_AUDITS}, headers={"Retry-After": "5"})
             clean_text(code, "code", settings, 1, 65536)
             cooldown = settings["runCooldownSeconds" if mode == "run" else "submitCooldownSeconds"]
             field = "lastRun" if mode == "run" else "lastSubmit"
@@ -676,7 +679,7 @@ def create_app(database_url=None):
                             fail(422, "BAD_BODY", "Each visibility policy needs names and values set to public or admin_only")
                 elif key == "maxNameLength":
                     value = integer(value, key, 1, 128)
-                elif key in ("resubmitPenaltyEnabled", "solutionNotificationsEnabled", "showBreakerIdentity"):
+                elif key in ("resubmitPenaltyEnabled", "solutionNotificationsEnabled", "showBreakerIdentity", "dependencyCausalChecksEnabled", "cheapInvariantChecksEnabled"):
                     if type(value) is not bool:
                         fail(422, "BAD_BODY", key + " must be boolean")
                 elif key == "breakImpactVisibility":

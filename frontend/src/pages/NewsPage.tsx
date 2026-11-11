@@ -14,6 +14,12 @@ const CATEGORY_TONE = {
   holiday: 'amber',
 } as const
 
+// Old announcements may store a generic control label in either language.
+// Keep authored titles, body text and custom CTA labels verbatim.
+export function newsCtaLabel(label: string): string {
+  return /^(view|посмотреть)$/i.test(label.trim()) ? t('View') : label
+}
+
 export function NewsPage() {
   useLocale()
   const news = useNews()
@@ -39,7 +45,7 @@ export function NewsPage() {
             <LinkButton to="/tasks" variant="primary" size="lg" icon={<TerminalSquare size={15} />}>
               {t("Browse tasks")}</LinkButton>
             <LinkButton to={pinned?.cta?.href ?? '/tasks'} size="lg" icon={<Sparkles size={15} />}>
-              {pinned ? pinned.cta?.label ?? t("Current event") : t("Current event")}
+              {pinned?.cta ? newsCtaLabel(pinned.cta.label) : t("Current event")}
             </LinkButton>
           </div>
         </div>
@@ -99,7 +105,7 @@ export function NewsPage() {
               <Markdown text={item.body} className="news-body" />
               {item.cta && (
                 <Link to={item.cta.href} className="cta">
-                  {item.cta.label} <ArrowRight size={12} />
+                  {newsCtaLabel(item.cta.label)} <ArrowRight size={12} />
                 </Link>
               )}
             </Panel>
