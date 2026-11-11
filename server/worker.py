@@ -288,7 +288,11 @@ def process_job(store, job):
             candidate = merged_snapshot(world["snapshot"], result.get("changes", {}))
             if len(dumps(candidate)) > 4 * 1024 * 1024 or len(set(candidate["variables"]) | set(candidate["functions"])) > 20000:
                 result = failure("The shared world has reached its size limit; reuse existing names or ask an administrator to restore definitions", code="WORLD_LIMIT")
-            elif prohibited(json.dumps(effective_changes(world["snapshot"], result.get("changes", {})), ensure_ascii=False), world["settings"]["denyWords"]):
+            else:
+                from .world_limits import account_growth_allowed
+                if not account_growth_allowed(world, candidate, result.get("changes", {}), user["id"]):
+                    result = failure("Your published world data exceeds 512 KiB; reuse names with smaller definitions or values", code="WORLD_ACCOUNT_LIMIT")
+            if prohibited(json.dumps(effective_changes(world["snapshot"], result.get("changes", {})), ensure_ascii=False), world["settings"]["denyWords"]):
                 result = failure("Published values contain a word blocked by the platform", code="DENIED_WORD")
         with store.transaction() as tx:
             latest = tx.world()
@@ -348,7 +352,10 @@ def process_job(store, job):
                     previous_world = copy.deepcopy(latest)
                     changes = result.get("changes", {})
                     invalidations = effective_changes(latest["snapshot"], changes)
-                    latest["snapshot"] = merged_snapshot(latest["snapshot"], changes)
+                    candidate = merged_snapshot(latest["snapshot"], changes)
+                    from .world_limits import last_result_owners
+                    latest["lastOwnerUsers"] = last_result_owners(latest, candidate, changes, user["id"])
+                    latest["snapshot"] = candidate
                     latest["version"] += 1
                     submission["worldVersion"] = latest["version"]
                     submission["publicationVersion"] = latest["version"]

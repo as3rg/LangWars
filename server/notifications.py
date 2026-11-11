@@ -14,6 +14,24 @@ LEGACY_PRIVATE_NOTICES = {"Code is private to its author.", "Код доступ
 LEGACY_RUN_NOTICE = re.compile(r"(?:Sample run|Примеры): (?:OK|FAIL|CE|TLE|MLE|RE|WRONG_ANSWER|BROKEN)")
 
 
+def mark_read(tx, user_id, identifiers=None):
+    """One account-scoped update; repeated requests never rewrite read events."""
+    if identifiers == []:
+        return 0
+    if tx.postgres:
+        update = "jsonb_set(data::jsonb, '{read}', 'true'::jsonb)::text"
+        unread = "COALESCE(data::jsonb->>'read', 'false')='false'"
+    else:
+        update = "json_set(data, '$.read', json('true'))"
+        unread = "COALESCE(json_extract(data, '$.read'), 0)=0"
+    sql = "UPDATE records SET data=" + update + " WHERE kind='notifications' AND user_id=? AND " + unread
+    params = [user_id]
+    if identifiers is not None:
+        sql += " AND id IN (" + ",".join("?" for _ in identifiers) + ")"
+        params.extend(identifiers)
+    return tx.execute(sql, params).rowcount
+
+
 def _people(tx):
     # Scope the cache to one transaction: no stale names across requests/renames,
     # and a page of events does not perform a query for every actor/recipient.

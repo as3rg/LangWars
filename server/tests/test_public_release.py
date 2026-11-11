@@ -146,7 +146,7 @@ class PublicReleaseTests(unittest.TestCase):
                 self.assertEqual(response.json()["error"]["message"], "Wrong username or password")
             self.assertEqual(self.client.post("/api/auth/login", json={"username": "unknown", "password": "wrong-password"}).status_code, 429)
         with self.store.transaction() as tx:
-            tx.put("throttle", token_hash("name:operator"), [time.time()] * 15)
+            tx.put("throttle", token_hash("login:name:operator"), [time.time()] * 15)
         with patch("server.app.password_matches", side_effect=AssertionError("Rate-limited request reached scrypt")):
             response = self.client.post("/api/auth/login", json={"username": "operator", "password": "admin-password-for-tests"})
             self.assertEqual(response.status_code, 429)

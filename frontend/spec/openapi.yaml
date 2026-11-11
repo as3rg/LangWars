@@ -550,6 +550,8 @@ paths:
   /tasks/{taskId}/insights:
     get:
       summary: Custom-page data for a task
+      description: Public task statistics and recent submission summaries; excludes source, hidden tests, and private submission details.
+      security: []
       parameters:
         - $ref: '#/components/parameters/TaskId'
       responses:

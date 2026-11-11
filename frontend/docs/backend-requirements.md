@@ -165,7 +165,9 @@ by `/rating/tables`.
 6. **Task solved state:** `solved` is true if the current user has any accepted submission;
    `attempted` is true if they have any submission. `solvedBy` is a display count.
 7. **News pinned item** is used as a hero/event banner. `endsAt` drives the countdown.
-8. **`/tasks/{id}/insights`** feeds custom task pages. The UI expects
+8. **`/tasks/{id}/insights`** is public and feeds custom task pages with task statistics
+   and code-free recent submission summaries. It must exclude source, hidden tests,
+   and private submission details. The UI expects
    `{ kind, data }`; the mock returns stats for the `stats` kind. Unknown payload shapes are
    only safe for registered kinds — coordinate before adding new ones.
 9. **LWLang versions and addons** are part of task data. The frontend parses submitted code

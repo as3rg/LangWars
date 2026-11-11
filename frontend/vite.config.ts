@@ -1,9 +1,28 @@
-import { defineConfig } from 'vite'
+import { defineConfig, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 import { fileURLToPath, URL } from 'node:url'
+import { rmSync } from 'node:fs'
+import { resolve } from 'node:path'
+
+function excludeProductionMockWorker(): Plugin {
+  let workerPath: string | undefined
+  return {
+    name: 'exclude-production-mock-worker',
+    apply: 'build',
+    configResolved(config) {
+      if (config.env.VITE_USE_MOCK !== 'true') {
+        workerPath = resolve(config.root, config.build.outDir, 'mockServiceWorker.js')
+      }
+    },
+    closeBundle() {
+      // Vite copies public assets outside the Rollup output bundle.
+      if (workerPath) rmSync(workerPath, { force: true })
+    },
+  }
+}
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), excludeProductionMockWorker()],
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),

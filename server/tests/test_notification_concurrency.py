@@ -62,6 +62,18 @@ class NotificationConcurrencyTests(unittest.TestCase):
             self.assertEqual(len(tx.list("notifications", user_id="recipient")), 1)
             self.assertTrue(tx.get("notifications", identifiers[0])["read"])
 
+    def test_bulk_mark_read_preserves_json_booleans_and_other_accounts(self):
+        from server.notifications import event, mark_read
+        with self.store.transaction() as tx:
+            tx.world()
+            mine = event(tx, "recipient", "info", "mine", message="message")
+            other = event(tx, "other", "info", "other", message="message")
+        with self.store.transaction() as tx:
+            self.assertEqual(mark_read(tx, "recipient", [mine["id"], other["id"]]), 1)
+            self.assertEqual(mark_read(tx, "recipient"), 0)
+            self.assertIs(tx.get("notifications", mine["id"])["read"], True)
+            self.assertIs(tx.get("notifications", other["id"])["read"], False)
+
     def test_duplicate_audit_workers_credit_one_player_once_and_release_snapshots(self):
         from server.break_audits import schedule
         from server.langwarsscript import compile_program
