@@ -17,10 +17,14 @@ export function NeonBackground() {
     const ctx = canvas.getContext('2d')
     if (!ctx) return
 
-    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    const motionPreference = window.matchMedia('(prefers-reduced-motion: reduce)')
+    let reduced = motionPreference.matches
     let width = 0
     let height = 0
-    let frame = 0
+    let frame: number | null = null
+    let lastDraw = 0
+    // This slow decorative effect does not need to redraw at the display's refresh rate.
+    const frameInterval = 1000 / 30
 
     const stars: Star[] = Array.from({ length: 120 }, () => ({
       x: Math.random(),
@@ -39,6 +43,7 @@ export function NeonBackground() {
       canvas.style.width = `${width}px`
       canvas.style.height = `${height}px`
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+      syncAnimation()
     }
 
     const colorFor = (hue: Star['hue'], alpha: number) => {
@@ -92,18 +97,37 @@ export function NeonBackground() {
           ctx.fillRect(x, y, 1, 120)
         }
       }
+    }
 
-      if (!reduced) frame = requestAnimationFrame(draw)
+    const tick = (time: number) => {
+      // Allow for sub-millisecond variation in refresh timestamps.
+      if (time - lastDraw >= frameInterval - 0.1) {
+        draw(time)
+        lastDraw = time
+      }
+      frame = requestAnimationFrame(tick)
+    }
+
+    const syncAnimation = () => {
+      if (frame !== null) cancelAnimationFrame(frame)
+      frame = null
+      reduced = motionPreference.matches
+      if (document.hidden) return
+      lastDraw = performance.now()
+      draw(lastDraw)
+      if (!reduced) frame = requestAnimationFrame(tick)
     }
 
     resize()
-    draw(0)
     window.addEventListener('resize', resize)
-    if (!reduced) frame = requestAnimationFrame(draw)
+    document.addEventListener('visibilitychange', syncAnimation)
+    motionPreference.addEventListener('change', syncAnimation)
 
     return () => {
-      cancelAnimationFrame(frame)
+      if (frame !== null) cancelAnimationFrame(frame)
       window.removeEventListener('resize', resize)
+      document.removeEventListener('visibilitychange', syncAnimation)
+      motionPreference.removeEventListener('change', syncAnimation)
     }
   }, [])
 
