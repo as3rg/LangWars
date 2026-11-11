@@ -20,6 +20,8 @@ import type {
   Namespace,
   NotificationPage,
   UserNotification,
+  RecheckPage,
+  PerformanceSnapshot,
 } from './types'
 
 const TOKEN_KEY = 'langwars.token'
@@ -146,6 +148,11 @@ export const api = {
     return apiFetch<SubmissionSummary[]>(`/submissions${query ? `?${query}` : ''}`)
   },
   submission: (id: string) => apiFetch<Submission>(`/submissions/${id}`),
+  submissionRechecks: (id: string, scope: 'target' | 'caused', cursor?: SubmissionCursor) => {
+    const search = new URLSearchParams({ scope, limit: '50' })
+    if (cursor) { search.set('beforeCreated', cursor.beforeCreated); search.set('beforeId', cursor.beforeId) }
+    return apiFetch<RecheckPage>(`/admin/submissions/${encodeURIComponent(id)}/rechecks?${search}`)
+  },
 
   notifications: (cursor?: SubmissionCursor) => {
     const search = new URLSearchParams({ limit: '50' })
@@ -159,6 +166,7 @@ export const api = {
   rating: (table: string, search = '') => apiFetch<RatingTable>(`/rating?table=${encodeURIComponent(table)}&q=${encodeURIComponent(search)}`),
 
   adminSummary: () => apiFetch<AdminSummary>('/admin/summary'),
+  performance: () => apiFetch<PerformanceSnapshot>('/admin/performance'),
   adminUsers: () => apiFetch<User[]>('/admin/users'),
   updateUser: (id: string, patch: Partial<Pick<User, 'role' | 'adminNote' | 'banned' | 'nameLimit' | 'username' | 'rating' | 'solvedTaskIds'>> & { purgeState?: boolean }) =>
     apiFetch<User>(`/admin/users/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),

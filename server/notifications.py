@@ -1,5 +1,6 @@
 """Durable, account-scoped events and read-time privacy projections."""
 import hashlib
+import re
 
 from .store import iso
 
@@ -9,6 +10,8 @@ MAX_HISTORY = 500
 PUBLIC_EVENT_FIELDS = {"id", "kind", "createdAt", "read", "taskId", "taskTitle", "submissionId", "verdictStatus", "occurredAt", "historical"}
 EVENT_DETAILS = PUBLIC_EVENT_FIELDS - {"id", "kind", "createdAt", "read"}
 PRIVATE_SUBMISSION_FIELDS = {"brokenUserIds", "brokenSubmissionIds", "impactedUserIds", "notificationState", "actorUserId", "actorSubmissionId", "causeSubmissionId", "breakAuditId", "before", "after", "snapshot", "breaker", "breakImpact"}
+LEGACY_PRIVATE_NOTICES = {"Code is private to its author.", "Код доступен только автору."}
+LEGACY_RUN_NOTICE = re.compile(r"(?:Sample run|Примеры): (?:OK|FAIL|CE|TLE|MLE|RE|WRONG_ANSWER|BROKEN)")
 
 
 def _people(tx):
@@ -69,6 +72,10 @@ def project(tx, value, settings, viewer=None):
     if viewer is not None and viewer.get("id") != value.get("userId"):
         return None
     kind = value["kind"]
+    if kind in GENERIC_KINDS:
+        message = value.get("message", "")
+        if isinstance(message, str) and (message in LEGACY_PRIVATE_NOTICES or LEGACY_RUN_NOTICE.fullmatch(message)):
+            return None
     if kind in SOLUTION_KINDS and not settings.get("solutionNotificationsEnabled", True):
         return None
     if kind == "breaking" and settings.get("breakImpactVisibility", "count") == "hidden":
@@ -108,7 +115,7 @@ def reconcile_solution(tx, sub, task):
     solution have completed, and never overwrite a notification baseline with an
     older world version. The caller holds the world's commit lock.
     """
-    if not sub or not task or not tx.get("submissions", sub["id"]):
+    if not sub or not task or not sub.get("active", True) or not tx.get("submissions", sub["id"]):
         return None
     recipient = tx.get("users", sub["userId"])
     if not recipient or recipient.get("banned"):

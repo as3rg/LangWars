@@ -1,4 +1,5 @@
 import { t, useLocale } from '@/lib/i18n'
+import { formatNumber } from '@/lib/numbers'
 import clsx from 'clsx'
 import type { ButtonHTMLAttributes, HTMLAttributes, ReactNode } from 'react'
 import { Link, type LinkProps } from 'react-router-dom'
@@ -221,6 +222,6 @@ export function ScorePill({ score }: { score: number }) {
   useLocale()
   return (
     <span className="badge badge-cyan" title={t("Task score")}>
-      {score} {t("pts")}</span>
+      {formatNumber(score)} {t("pts")}</span>
   )
 }

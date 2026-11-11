@@ -9,6 +9,7 @@ import { CatMascot } from '@/components/CatMascot'
 import { Avatar, Badge, GlowButton, LinkButton, Panel } from '@/components/ui'
 import { toast } from '@/store/ui'
 import { inviteFromFragment } from '@/lib/invites'
+import { formatNumber } from '@/lib/numbers'
 
 function errorMessage(error: unknown): string {
   if (error instanceof ApiError) return error.message
@@ -76,7 +77,7 @@ export function AuthPage() {
               <div className="eyebrow">{t("session active")}</div>
               <h2 style={{ fontSize: 24, margin: '4px 0' }}>{user.displayName}</h2>
               <div className="row wrap" style={{ gap: 6 }}>
-                <Badge tone="cyan">{user.rating} {t("rating")}</Badge>
+                <Badge tone="cyan">{formatNumber(user.rating)} {t("rating")}</Badge>
                 <Badge tone="violet">{user.solvedCount} {t("solved")}</Badge>
                 {isAdmin && (
                   <Badge tone="amber">

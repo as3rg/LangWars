@@ -216,6 +216,9 @@ class Parser:
             raise Rejected("This operation cannot currently be overridden", "OVERRIDE_DISABLED")
         if len(overrides) > self.options.get("max_overrides", 16):
             raise Rejected("Too many core overrides for this task", "OVERRIDE_LIMIT")
+        maximum = self.options.get("max_names")
+        if maximum is not None and len(self.names) > maximum:
+            raise Rejected(f"This task permits at most {maximum} unique names per program", "TASK_NAME_LIMIT")
         return {"functions": functions, "top": top, "names": sorted(self.names), "source_id": self.source_id}
 
     def block(self):

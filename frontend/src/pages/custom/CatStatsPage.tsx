@@ -10,6 +10,7 @@ import {
   StatusPill,
 } from '@/components/ui'
 import { formatDuration, formatRelative } from '@/lib/time'
+import { formatNumber } from '@/lib/numbers'
 
 interface StatsData {
   taskTitle: string
@@ -70,7 +71,7 @@ export function CatStatsPage({ task }: { task: Task }) {
             </div>
             <div className="stat-box">
               <div className="stat-label">{t("Avg attempts")}</div>
-              <div className="value">{data.averageAttempts}</div>
+              <div className="value">{formatNumber(data.averageAttempts)}</div>
             </div>
             <div className="stat-box">
               <div className="stat-label">{t("Fastest solve")}</div>
@@ -132,7 +133,7 @@ export function CatStatsPage({ task }: { task: Task }) {
                     </span>
                   </span>
                   <span className="mono dim" style={{ fontSize: 11.5 }}>
-                    {submission.score} {t("pts · ")}{submission.testsPassed}/{submission.testsTotal} {t("tests ·")}{' '}
+                    {formatNumber(submission.score)} {t("pts · ")}{submission.testsPassed}/{submission.testsTotal} {t("tests ·")}{' '}
                     {formatRelative(submission.createdAt)}
                   </span>
                 </div>

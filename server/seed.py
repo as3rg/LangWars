@@ -6,7 +6,7 @@ WORDS = "a b c x y z n i j k in out input output value values result answer solv
 
 def initial_world():
     return {"version": 0, "languageRevision": "no-swap-2026-11", "snapshot": {"variables": {}, "functions": {}, "last": {}}, "owners": {}, "settings": {
-        "registrationMode": "invite", "defaultNameLimit": 100, "maxNameLength": 48,
+        "registrationMode": "invite", "defaultNameLimit": 100, "defaultTaskNameLimit": 30, "maxNameLength": 48,
         "worldVisibility": {
             "variables": {"names": "public", "values": "admin_only"},
             "functions": {"names": "public", "values": "admin_only"},
@@ -53,7 +53,7 @@ def task(slug, title, difficulty, score, statement, parameters, tests, types, en
             "constraints": [*common_constraints, *constraints], "translations": translations,
             "examples": examples,
             "starterCode": starter, "entryPoint": entry, "timeLimitMs": 1000,
-            "coreOverrideLimit": 2, "allowedWords": None, "tests": tests}
+            "coreOverrideLimit": None, "namePublishLimit": None, "allowedWords": None, "tests": tests}
 
 
 def initial_tasks():

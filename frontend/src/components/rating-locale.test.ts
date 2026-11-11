@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { useRating, useRatingTables, useTasks } from '@/api/hooks'
 import { RatingPage } from '@/pages/RatingPage'
+import { RatingTablePanel } from './RatingTablePanel'
 import { useLocale } from '@/lib/i18n'
 
 vi.mock('@/api/hooks', () => ({ useRating: vi.fn(), useRatingTables: vi.fn(), useTasks: vi.fn() }))
@@ -10,6 +11,19 @@ vi.mock('@/api/hooks', () => ({ useRating: vi.fn(), useRatingTables: vi.fn(), us
 afterEach(() => { useLocale.setState({ locale: 'en' }); vi.clearAllMocks() })
 
 describe('rating presentation', () => {
+  it('shows task base points minus accumulated charges and rounds numeric statistics', () => {
+    useLocale.setState({ locale: 'en' })
+    const player = { userId: 'player', username: 'Cat', rank: 1, score: 66, baseScore: 70, penalty: 4, solved: 1, extra: { time: 3.0000000004 } }
+    vi.mocked(useRating).mockReturnValue({ data: {
+      descriptor: { id: 'task:sum', title: 'Sum', columns: [{ key: 'time', label: 'Time' }, { key: 'baseScore', label: 'Base' }] }, rows: [player],
+    } } as unknown as ReturnType<typeof useRating>)
+    const html = renderToStaticMarkup(createElement(RatingTablePanel, { tableId: 'task:sum' }))
+    expect(html).toContain('title="Net points: 66"')
+    expect(html).toContain('70<span class="score-penalty">−4</span>')
+    expect(html).toContain('>3</td>')
+    expect(html).not.toContain('3.0000000004')
+    expect(html).not.toContain('>Base</th>')
+  })
   it.each([
     ['en', 'A shared sum', 'All tasks', 'Points', 'Solved'],
     ['ru', 'Общая сумма', 'Все задачи', 'Очки', 'Решено'],

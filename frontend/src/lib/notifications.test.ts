@@ -8,6 +8,8 @@ import { notificationToast, toast, useToastStore } from '@/store/ui'
 import { BreakImpactBadge } from '@/components/BreakImpact'
 import { StatusPill } from '@/components/ui'
 import { NotificationTracker, notificationText } from './notifications'
+import { ToastCard } from '@/components/ToastHost'
+import { NotificationEntry } from '@/components/NotificationBell'
 import { useLocale } from './i18n'
 
 const event = (id: string, kind: UserNotification['kind'] = 'broken', patch: Partial<UserNotification> = {}): UserNotification => ({ id, kind, createdAt: `2026-11-11T12:00:0${id.slice(-1)}Z`, read: false, taskId: 'sum', taskTitle: 'Sum', submissionId: 'sub-' + id, ...patch })
@@ -51,6 +53,8 @@ describe('notification delivery', () => {
     expect(create).not.toHaveBeenCalled()
     notificationToast(event('2', 'broken'))
     expect(useToastStore.getState().toasts[1].effect).toBe('destruction')
+    notificationToast(event('3', 'breaking'))
+    expect(useToastStore.getState().toasts[2].effect).toBe('breaking')
   })
   it('stores ordinary popups in server history without converting structured game events into messages', async () => {
     const create = vi.spyOn(api, 'createNotification').mockResolvedValue(event('9', 'info'))
@@ -84,6 +88,23 @@ describe('notification delivery', () => {
 })
 
 describe('notification presentation', () => {
+  it('keeps distinct semantic colors after reading, and provides visible effects for each game outcome', () => {
+    for (const [kind, tone, effect, marker] of [
+      ['accepted', 'positive', 'fireworks', 'toast-burst'],
+      ['broken', 'negative', 'destruction', 'toast-static'],
+      ['breaking', 'golden', 'breaking', 'toast-impact'],
+    ] as const) {
+      const item = event('1', kind)
+      const unread = renderToStaticMarkup(createElement(NotificationEntry, { item, onRead: () => {} }))
+      const read = renderToStaticMarkup(createElement(NotificationEntry, { item: { ...item, read: true }, onRead: () => {} }))
+      expect(unread).toContain(`notification-tone-${tone} unread`)
+      expect(read).toContain(`notification-tone-${tone} read`)
+      const popup = renderToStaticMarkup(createElement(ToastCard, { toast: { id: 1, kind: 'info', message: '', notification: item, effect }, onDismiss: () => {} }))
+      expect(popup).toContain(`notification-tone-${tone}`)
+      expect(popup).toContain(marker)
+      expect(popup).toContain('aria-hidden="true"')
+    }
+  })
   it('localizes labels while preserving task titles and logins', () => {
     useLocale.setState({ locale: 'ru' })
     expect(notificationText(event('1', 'broken', { breaker: { userId: 'n', username: 'News' } }), 'Tasks')).toBe('Tasks · решение было сломано игроком News')

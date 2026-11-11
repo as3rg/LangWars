@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, ApiError } from './client'
-import type { NewsItem } from './types'
+import type { NewsItem, SubmissionCursor } from './types'
 import { useAuthStore } from '@/store/auth'
 import { localizeTask, useLocale } from '@/lib/i18n'
 import { notificationToast } from '@/store/ui'
@@ -58,13 +58,15 @@ export function useNews() {
 
 export function useTasks() {
   const { locale } = useLocale()
-  return useQuery({ queryKey: qk.tasks, queryFn: api.tasks, refetchInterval: 15_000, select: (tasks) => tasks.map((task) => localizeTask(task, locale)) })
+  const token = useAuthStore((state) => state.token)
+  return useQuery({ queryKey: [...qk.tasks, token], queryFn: api.tasks, refetchInterval: 15_000, select: (tasks) => tasks.map((task) => localizeTask(task, locale)) })
 }
 
 export function useTask(id: string | undefined) {
   const { locale } = useLocale()
+  const token = useAuthStore((state) => state.token)
   return useQuery({
-    queryKey: qk.task(id ?? ''),
+    queryKey: [...qk.task(id ?? ''), token],
     queryFn: () => api.task(id!),
     enabled: Boolean(id),
     refetchInterval: 15_000,
@@ -74,8 +76,9 @@ export function useTask(id: string | undefined) {
 
 export function useTaskSubmissions(taskId: string | undefined, scope: 'mine' | 'all') {
   const token = useAuthStore((state) => state.token)
+  const role = useAuthStore((state) => state.user?.role)
   return useQuery({
-    queryKey: qk.taskSubmissions(taskId ?? '', scope),
+    queryKey: [...qk.taskSubmissions(taskId ?? '', scope), token, role],
     queryFn: () => api.taskSubmissions(taskId!, scope),
     enabled: Boolean(taskId) && Boolean(token),
     refetchInterval: 10_000,
@@ -84,8 +87,9 @@ export function useTaskSubmissions(taskId: string | undefined, scope: 'mine' | '
 
 export function useAllSubmissions(params: { taskId?: string; userId?: string } = {}) {
   const token = useAuthStore((state) => state.token)
+  const role = useAuthStore((state) => state.user?.role)
   return useQuery({
-    queryKey: qk.submissions(params.taskId, params.userId),
+    queryKey: [...qk.submissions(params.taskId, params.userId), token, role],
     queryFn: () => api.submissions({ ...params, limit: 100 }),
     enabled: Boolean(token),
     refetchInterval: 10_000,
@@ -94,11 +98,26 @@ export function useAllSubmissions(params: { taskId?: string; userId?: string } =
 
 export function useSubmissionDetail(id: string | null) {
   const token = useAuthStore((state) => state.token)
+  const role = useAuthStore((state) => state.user?.role)
   return useQuery({
-    queryKey: qk.submission(id ?? ''),
+    queryKey: [...qk.submission(id ?? ''), token, role],
     queryFn: () => api.submission(id!),
     enabled: Boolean(id) && Boolean(token),
     retry: false,
+  })
+}
+
+export function useSubmissionRechecks(id: string | null, scope: 'target' | 'caused', enabled: boolean) {
+  const token = useAuthStore((state) => state.token)
+  const role = useAuthStore((state) => state.user?.role)
+  return useInfiniteQuery({
+    queryKey: ['admin', 'submissionRechecks', id, scope, token, role],
+    queryFn: ({ pageParam }) => api.submissionRechecks(id!, scope, pageParam),
+    initialPageParam: undefined as SubmissionCursor | undefined,
+    getNextPageParam: (page) => page.nextCursor ?? undefined,
+    enabled: Boolean(id && token && role === 'admin' && enabled),
+    retry: false,
+    refetchInterval: (query) => (query.state.data?.pages.length ?? 0) <= 1 ? 10000 : false,
   })
 }
 
@@ -115,8 +134,9 @@ export function useRatingTables() {
 }
 
 export function useRating(table: string, search = '') {
+  const token = useAuthStore((state) => state.token)
   return useQuery({
-    queryKey: [...qk.rating(table), search],
+    queryKey: [...qk.rating(table), search, token],
     queryFn: () => api.rating(table, search),
     enabled: Boolean(table),
     refetchInterval: 15_000,

@@ -4,12 +4,19 @@ import { Bell, CheckCheck, X } from 'lucide-react'
 import { api } from '@/api/client'
 import type { NotificationPage, SubmissionCursor, UserNotification } from '@/api/types'
 import { useSession, useTasks } from '@/api/hooks'
-import { NotificationTracker, notificationText } from '@/lib/notifications'
+import { NotificationTracker, notificationText, notificationTone } from '@/lib/notifications'
 import { formatDateTime, formatRelative } from '@/lib/time'
 import { t, useLocale } from '@/lib/i18n'
 import { notificationToast, useToastStore } from '@/store/ui'
 import { SubmissionModal } from './SubmissionModal'
 import { ErrorNotice, GlowButton } from './ui'
+
+export function NotificationEntry({ item, taskTitle, onRead }: { item: UserNotification; taskTitle?: string; onRead: () => void }) {
+  return <button className={`notification-entry notification-tone-${notificationTone(item.kind)}${item.read ? ' read' : ' unread'}`} onClick={onRead}>
+    <span className="notification-dot" aria-hidden="true" />
+    <span><span className="notification-message">{notificationText(item, taskTitle)}</span><time className="notification-time" dateTime={item.occurredAt ?? item.createdAt} title={formatDateTime(item.occurredAt ?? item.createdAt)}>{formatRelative(item.occurredAt ?? item.createdAt)}</time></span>
+  </button>
+}
 
 export function NotificationBell() {
   useLocale()
@@ -92,13 +99,10 @@ export function NotificationBell() {
       <div className="notification-list">
         {query.isLoading && <p className="muted notification-empty">{t('Loading…')}</p>}
         {!query.isLoading && !items.length && <p className="muted notification-empty">{t('No notifications yet.')}</p>}
-        {items.map((item) => <button key={item.id} className={`notification-entry${item.read ? '' : ' unread'}`} onClick={() => read(item)}>
-          <span className={`notification-dot notification-${item.kind}`} aria-hidden="true" />
-          <span><span className="notification-message">{notificationText(item, tasks.data?.find((task) => task.id === item.taskId)?.title)}</span><time className="notification-time" dateTime={item.occurredAt ?? item.createdAt} title={formatDateTime(item.occurredAt ?? item.createdAt)}>{formatRelative(item.occurredAt ?? item.createdAt)}</time></span>
-        </button>)}
+        {items.map((item) => <NotificationEntry key={item.id} item={item} taskTitle={tasks.data?.find((task) => task.id === item.taskId)?.title} onRead={() => read(item)} />)}
       </div>
       {query.hasNextPage && <div className="notification-panel-foot"><GlowButton size="sm" loading={query.isFetchingNextPage} onClick={() => query.fetchNextPage()}>{t('Older notifications')}</GlowButton></div>}
     </section>}
-    {selected?.scope === scope && <SubmissionModal id={selected.id} onClose={() => setSelected(null)} />}
+    {selected?.scope === scope && <SubmissionModal id={selected.id} onClose={() => { setSelected(null); trigger.current?.focus({ preventScroll: true }) }} />}
   </div>
 }

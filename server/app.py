@@ -64,11 +64,21 @@ def public_task(task, tx=None, user=None, admin=False):
             tx.public_solves = solved_task_map(tx, [player for player in tx.list("users") if not player.get("banned")])
         result["solvedBy"] = sum(task["id"] in solved for solved in tx.public_solves.values())
         result["solved"] = bool(user and task["id"] in tx.public_solves.get(user["id"], set()))
-        broken = bool(user and tx.execute("SELECT 1 FROM records WHERE kind='submissions' AND task_id=? AND user_id=? AND accepted=1 AND state<>'OK' LIMIT 1", (task["id"], user["id"])).fetchone())
+        broken = bool(user and tx.execute("SELECT 1 FROM records WHERE kind='submissions' AND task_id=? AND user_id=? AND accepted=1 AND active=1 AND state<>'OK' LIMIT 1", (task["id"], user["id"])).fetchone())
         result["attempted"] = bool(user and tx.execute("SELECT 1 FROM records WHERE kind='submissions' AND task_id=? AND user_id=? LIMIT 1", (task["id"], user["id"])).fetchone())
         result["broken"] = broken and not result["solved"]
         result["status"] = "solved" if result["solved"] else "broken" if broken else "attempted" if result["attempted"] else "new"
         result["resubmitPenalty"] = resubmit_penalty(tx, user, task, tx.get("system", "world")["settings"], solved=result["solved"])
+        world = tx.get("system", "world")
+        settings = world["settings"]
+        active_row = tx.execute("SELECT id FROM records WHERE kind='submissions' AND user_id=? AND task_id=? AND accepted=1 AND active=1 LIMIT 1", (user["id"], task["id"])).fetchone() if user else None
+        core_used = sum(definition.get("annotation") in OPERATIONS for name, definitions in world["snapshot"]["functions"].items()
+                        if active_row and world.get("owners", {}).get(name) == active_row[0]
+                        for definition in (definitions if isinstance(definitions, list) else [definitions]))
+        result["nameBudget"] = {"used": len(user.get("claimedNames", [])) if user else 0, "limit": user["nameLimit"] if user else settings["defaultNameLimit"],
+            "taskUsed": len(user.get("taskClaimedNames", {}).get(task["id"], [])) if user else 0,
+            "taskLimit": task.get("namePublishLimit") if task.get("namePublishLimit") is not None else settings.get("defaultTaskNameLimit", 30),
+            "coreUsed": core_used, "coreLimit": task.get("coreOverrideLimit") if task.get("coreOverrideLimit") is not None else settings["defaultCoreOverrideLimit"]}
     return result
 
 
@@ -101,10 +111,13 @@ def create_app(database_url=None):
 
     app = FastAPI(title="LangWars API", version="1.0.0", lifespan=lifespan)
     app.state.store = store
+    from .api_metrics import ApiMetrics, ApiMetricsMiddleware
+    app.state.api_metrics = ApiMetrics()
 
     @app.exception_handler(HTTPException)
     async def http_error(request, error):
         detail = error.detail if isinstance(error.detail, dict) else {"code": "HTTP_ERROR", "message": str(error.detail)}
+        app.state.api_metrics.rejection(detail.get("code"))
         return JSONResponse({"error": detail}, status_code=error.status_code, headers=error.headers)
 
     @app.middleware("http")
@@ -143,6 +156,8 @@ def create_app(database_url=None):
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Cache-Control"] = "no-store"
         return response
+
+    app.add_middleware(ApiMetricsMiddleware, metrics=app.state.api_metrics)
 
     def current(request, tx, required=True, admin=False):
         token = request.headers.get("authorization", "").removeprefix("Bearer ")
@@ -397,9 +412,10 @@ def create_app(database_url=None):
                 raise HTTPException(409, detail={"code": "PENALTY_CONFIRMATION_REQUIRED", "message": f"Submitting this solved task costs {penalty['points']} points", "points": penalty["points"]})
             job = {"id": uid("job_"), "userId": user["id"], "taskId": task["id"], "code": code,
                    "languageVersion": version, "mode": mode, "createdAt": iso(), "penaltyPoints": penalty["points"]}
-            tx.execute("INSERT INTO jobs(id,user_id,status,created,data) VALUES(?,?,'queued',?,?)", (job["id"], user["id"], now, dumps(job)))
+            tx.execute("INSERT INTO jobs(id,user_id,status,created,data,mode) VALUES(?,?,'queued',?,?,?)", (job["id"], user["id"], now, dumps(job), mode))
             user[field] = now
             user["submissionPenalties"] = user.get("submissionPenalties", 0) + penalty["points"]
+            user.setdefault("taskPenalties", {})[task["id"]] = user.get("taskPenalties", {}).get(task["id"], 0) + penalty["points"]
             user["rating"] -= penalty["points"]
             tx.put("users", user["id"], user)
             return {"jobId": job["id"], "penaltyPoints": penalty["points"]}
@@ -474,7 +490,7 @@ def create_app(database_url=None):
             if value["userId"] != user["id"] and user["role"] != "admin":
                 fail(403, "FORBIDDEN", "Code is private to its author")
             result = project_submission(tx, {key: val for key, val in value.items() if key not in {"dependencies", "names", "changes"}}, tx.get("system", "world")["settings"], viewer=user)
-            previous = tx.execute("SELECT data FROM records WHERE kind='submissions' AND user_id=? AND task_id=? AND created<? ORDER BY created DESC LIMIT 1", (value["userId"], value["taskId"], value["createdAt"])).fetchone()
+            previous = tx.execute("SELECT data FROM records WHERE kind='submissions' AND user_id=? AND task_id=? AND (created<? OR (created=? AND id<?)) ORDER BY created DESC,id DESC LIMIT 1", (value["userId"], value["taskId"], value["createdAt"], value["createdAt"], value["id"])).fetchone()
             if previous:
                 previous = json.loads(previous[0])
                 result.update(previousId=previous["id"], previousCode=previous["code"])
@@ -503,10 +519,11 @@ def create_app(database_url=None):
                     fail(404, "NOT_FOUND", "Rating table not found")
                 selected = {task["id"]: task for task in selected_tasks}
                 solves = solved_task_map(tx, users, selected)
-                users = [{**u, "rating": sum(selected[key]["score"] for key in solves[u["id"]]), "solvedCount": len(solves[u["id"]])} for u in users]
+                users = [{**u, "baseScore": sum(selected[key]["score"] for key in solves[u["id"]]), "penalty": sum(u.get("taskPenalties", {}).get(key, 0) for key in selected), "solvedCount": len(solves[u["id"]])} for u in users]
+                users = [{**u, "rating": u["baseScore"] - u["penalty"]} for u in users]
                 selected_descriptor = {**descriptor, "id": table, "title": selected_tasks[0]["title"] if table.startswith("task:") else table}
             users.sort(key=lambda u: (-u["rating"], u["createdAt"]))
-            rows = [{"rank": i + 1, "userId": u["id"], "username": u["username"], "score": u["rating"], "solved": u["solvedCount"], "extra": {}} for i, u in enumerate(users)]
+            rows = [{"rank": i + 1, "userId": u["id"], "username": u["username"], "score": u["rating"], "baseScore": u.get("baseScore", u["rating"] + u.get("submissionPenalties", 0)), "penalty": u.get("penalty", u.get("submissionPenalties", 0)), "solved": u["solvedCount"], "extra": {}} for i, u in enumerate(users)]
             return {"descriptor": selected_descriptor, "rows": [row for row in rows if q in row["username"].casefold()], "me": next((r for r in rows if user and r["userId"] == user["id"]), None)}
 
     @app.get("/api/tasks/{task_id}/insights")
@@ -514,11 +531,11 @@ def create_app(database_url=None):
         with store.transaction() as tx:
             task = find_task(tx, task_id)
             total, users = tx.execute("SELECT COUNT(*),COUNT(DISTINCT user_id) FROM records WHERE kind='submissions' AND task_id=?", (task["id"],)).fetchone()
-            solved = tx.execute("SELECT COUNT(DISTINCT user_id) FROM records WHERE kind='submissions' AND task_id=? AND state='OK'", (task["id"],)).fetchone()[0]
+            solved = tx.execute("SELECT COUNT(DISTINCT user_id) FROM records WHERE kind='submissions' AND task_id=? AND state='OK' AND active=1", (task["id"],)).fetchone()[0]
             breakdown = dict(tx.execute("SELECT state,COUNT(*) FROM records WHERE kind='submissions' AND task_id=? GROUP BY state", (task["id"],)).fetchall())
-            fastest = tx.execute("SELECT MIN(duration) FROM records WHERE kind='submissions' AND task_id=? AND state='OK'", (task["id"],)).fetchone()[0] or 0
+            fastest = tx.execute("SELECT MIN(duration) FROM records WHERE kind='submissions' AND task_id=? AND state='OK' AND active=1", (task["id"],)).fetchone()[0] or 0
             top = []
-            for user_id, attempts, passed in tx.execute("SELECT user_id,COUNT(*),MAX(CASE WHEN state='OK' THEN 1 ELSE 0 END) FROM records WHERE kind='submissions' AND task_id=? GROUP BY user_id ORDER BY MAX(CASE WHEN state='OK' THEN 1 ELSE 0 END) DESC,COUNT(*) DESC LIMIT 5", (task["id"],)).fetchall():
+            for user_id, attempts, passed in tx.execute("SELECT user_id,COUNT(*),MAX(CASE WHEN state='OK' AND active=1 THEN 1 ELSE 0 END) FROM records WHERE kind='submissions' AND task_id=? GROUP BY user_id ORDER BY MAX(CASE WHEN state='OK' AND active=1 THEN 1 ELSE 0 END) DESC,COUNT(*) DESC LIMIT 5", (task["id"],)).fetchall():
                 user = tx.get("users", user_id)
                 top.append({"userId": user_id, "username": user["username"] if user else "deleted", "attempts": attempts, "solved": bool(passed)})
             return {"kind": "stats", "data": {"taskTitle": task["title"], "totalSubmissions": total, "uniqueCats": users, "solvedCats": solved, "solveRate": solved / max(1, users), "averageAttempts": total / max(1, users), "fastestMs": fastest, "statusBreakdown": breakdown, "topCats": top, "recent": submission_list(tx, task["id"], limit=5)}}
@@ -542,6 +559,18 @@ def create_app(database_url=None):
                 fields = ("name", "params", "types", "annotation", "cast_to", "source")
                 result["functions"] = {name: {key: definition.get(key) for key in fields} for name, definition in result["functions"].items()}
                 result["last"] = {name: value for name, value in world["snapshot"].get("last", {}).items() if name in result["functions"]}
+            if admin:
+                result["ownership"] = {}
+                sources, people = {}, {}
+                for name, submission_id in world.get("owners", {}).items():
+                    if submission_id not in sources:
+                        sources[submission_id] = tx.get("submissions", submission_id)
+                    source = sources[submission_id]
+                    owner_id = source["userId"] if source else world.get("ownerUsers", {}).get(name)
+                    if owner_id and owner_id not in people:
+                        people[owner_id] = tx.get("users", owner_id)
+                    owner = people.get(owner_id)
+                    result["ownership"][name] = {"submissionId": submission_id, "userId": owner_id, "username": owner["username"] if owner else None, "taskId": source.get("taskId") if source else None, "taskTitle": source.get("taskTitle") if source else None}
             return result
 
     def change_world_name(name, request, version, body=None):
@@ -609,6 +638,18 @@ def create_app(database_url=None):
             counts = {kind: tx.execute("SELECT COUNT(*) FROM records WHERE kind=?", (kind,)).fetchone()[0] for kind in ["users", "tasks", "submissions", "news"]}
             return {**counts, "pendingReports": 0, "recent": submission_list(tx, limit=10, viewer=viewer), "queuedJobs": tx.execute("SELECT COUNT(*) FROM jobs WHERE status IN ('queued','running')").fetchone()[0]}
 
+    @app.get("/api/admin/performance")
+    def performance(request: Request):
+        # Authorize on every request, including cached snapshots. Never take the
+        # publication lock to observe the queue or a worker heartbeat.
+        with store.transaction() as tx:
+            current(request, tx, admin=True)
+            started = time.perf_counter()
+            tx.execute("SELECT 1").fetchone()
+            probe_ms = (time.perf_counter() - started) * 1000
+        from .telemetry import snapshot
+        return {**snapshot(store), "api": app.state.api_metrics.snapshot(), "store": {"probeMs": probe_ms}}
+
     @app.get("/api/admin/settings")
     def settings(request: Request):
         with store.transaction() as tx:
@@ -650,7 +691,7 @@ def create_app(database_url=None):
                     if key == "permittedOverrides" and set(value) - set(OPERATIONS):
                         fail(422, "BAD_BODY", "Unknown core operation")
                 else:
-                    upper = 86400 if "Cooldown" in key else (10000 if key == "defaultNameLimit" else (1000 if key == "maxQueuedJobs" else 32))
+                    upper = 86400 if "Cooldown" in key else (10000 if key in ("defaultNameLimit", "defaultTaskNameLimit") else (1000 if key == "maxQueuedJobs" else 32))
                     value = integer(value, key, 1 if key == "maxQueuedJobs" else 0, upper)
                 settings[key] = value
             world["version"] += 1
@@ -858,6 +899,31 @@ def create_app(database_url=None):
             current(request, tx, admin=True)
             return tx.list("audit", limit=200)
 
+    @app.get("/api/admin/submissions/{submission_id}/rechecks")
+    def submission_rechecks(submission_id: str, request: Request, scope: str = "target", limit: int = 50, beforeCreated: str | None = None, beforeId: str | None = None):
+        with store.transaction() as tx:
+            current(request, tx, admin=True)
+            if not tx.get("submissions", submission_id):
+                fail(404, "NOT_FOUND", "Submission not found")
+            if scope not in ("target", "caused"):
+                fail(422, "BAD_BODY", "scope must be target or caused")
+            if not 1 <= limit <= 100 or (beforeCreated is None) != (beforeId is None):
+                fail(422, "BAD_CURSOR", "Invalid history limit or cursor")
+            if beforeCreated is not None:
+                text(beforeCreated, "beforeCreated", 20, 32)
+                text(beforeId, "beforeId", 1, 96)
+                if not re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z", beforeCreated) or not re.fullmatch(r"[A-Za-z0-9_-]+", beforeId):
+                    fail(422, "BAD_CURSOR", "Invalid history cursor")
+                try:
+                    from datetime import datetime
+                    datetime.fromisoformat(beforeCreated.replace("Z", "+00:00"))
+                except ValueError:
+                    fail(422, "BAD_CURSOR", "Invalid history cursor date")
+            from .recheck_history import page
+            return page(tx, submission_id=submission_id if scope == "target" else None,
+                        cause_submission_id=submission_id if scope == "caused" else None,
+                        cursor={"beforeCreated": beforeCreated, "beforeId": beforeId} if beforeCreated else None, limit=limit)
+
     def news_body(body, old=None):
         item = dict(old or {"id": uid("news_"), "createdAt": iso(), "pinned": False, "category": "update", "accent": "cyan", "body": ""})
         for key in ["title", "body", "startsAt", "endsAt"]:
@@ -927,9 +993,14 @@ def create_app(database_url=None):
             if not isinstance(body["constraints"], list) or len(body["constraints"]) > 100:
                 fail(422, "BAD_BODY", "constraints must be a list of at most 100 strings")
             item["constraints"] = [text(value, "constraint", 0, 2000) for value in body["constraints"]]
-        for key, lower, upper in [("score", 0, 10000), ("timeLimitMs", 10, 5000), ("coreOverrideLimit", 0, 32)]:
+        for key, lower, upper in [("score", 0, 10000), ("timeLimitMs", 10, 5000)]:
             if key in body:
                 item[key] = integer(body[key], key, lower, upper)
+        for key, upper in [("coreOverrideLimit", 32), ("namePublishLimit", 10000)]:
+            if key in body:
+                item[key] = None if body[key] is None else integer(body[key], key, 0, upper)
+            elif old is None:
+                item[key] = None
         if "difficulty" in body:
             if body["difficulty"] not in ["easy", "medium", "hard", "nightmare"]:
                 fail(422, "BAD_BODY", "Invalid difficulty")
@@ -1032,7 +1103,6 @@ def create_app(database_url=None):
         with store.transaction() as tx:
             world = tx.world()
             admin = current(request, tx, admin=True)
-            body.setdefault("coreOverrideLimit", world["settings"]["defaultCoreOverrideLimit"])
             item = validate_task(body)
             if any(t["slug"] == item["slug"] for t in tx.list("tasks")):
                 fail(409, "SLUG_TAKEN", "Task slug is already taken")
@@ -1085,7 +1155,7 @@ def create_app(database_url=None):
             world = tx.world()
             admin = current(request, tx, admin=True)
             job = {"id": uid("job_"), "userId": admin["id"], "mode": "restore", "operations": selected, "createdAt": iso()}
-            tx.execute("INSERT INTO jobs(id,user_id,status,created,data) VALUES(?,?,'queued',?,?)", (job["id"], admin["id"], time.time(), dumps(job)))
+            tx.execute("INSERT INTO jobs(id,user_id,status,created,data,mode) VALUES(?,?,'queued',?,?,?)", (job["id"], admin["id"], time.time(), dumps(job), "restore"))
             tx.audit(admin["id"], "request_restore", operations=selected)
             return {"jobId": job["id"], "restored": selected, "version": world["version"]}
 

@@ -16,11 +16,11 @@ import { ApiError } from '@/api/client'
 import { isLangVersion, LATEST_VERSION, type LangVersion } from '@/lwlang'
 import { LwEditor } from '@/editor/LwEditor'
 import { Markdown } from '@/components/Markdown'
-import { LanguageGuide } from '@/components/LanguageGuide'
 import { CatMascot } from '@/components/CatMascot'
 import { RatingTablePanel } from '@/components/RatingTablePanel'
 import { SubmissionModal } from '@/components/SubmissionModal'
 import { BreakImpactBadge } from '@/components/BreakImpact'
+import { TaskDictionary } from '@/components/TaskDictionary'
 import {
   Badge,
   DifficultyBadge,
@@ -34,6 +34,7 @@ import {
   StatusPill,
 } from '@/components/ui'
 import { formatRelative } from '@/lib/time'
+import { formatNumber } from '@/lib/numbers'
 import { plural } from '@/lib/plural'
 import { toast } from '@/store/ui'
 import { CustomTaskPage } from './custom/registry'
@@ -103,9 +104,7 @@ function TaskWorkspace({ task }: { task: Task }) {
         onSuccess: (result) => {
           setRunResult(result)
           setChecked({ code, diagnostics: result.diagnostics ?? [] })
-          toast(result.status === 'OK' ? 'success' : 'info', t('Sample run: {status}', { status: result.status }))
         },
-        onError: (error) => toast('error', messageOf(error)),
       },
     )
   }
@@ -212,12 +211,12 @@ function TaskWorkspace({ task }: { task: Task }) {
             ))}
           </ul>
 
+          <TaskDictionary words={task.allowedWords ?? []} />
+
           <p className="muted" style={{ marginTop: 20 }}>{t("Run checks the examples. Submit checks all tests and publishes changes when accepted. Time limit: ")}{task.timeLimitMs} {t("ms.")}</p>
           <p className="muted">{t("Use exactly one ")}<code>@solution</code> {t("function. Names and parameters are global; another player can change them later.")}</p>
-          {task.coreOverrideLimit !== undefined && <p className="mono dim">{t("Up to ")}{task.coreOverrideLimit} {t("core overrides.")}</p>}
           <Link to="/world">{t("Explore shared names and available words →")}</Link>
-          <LanguageGuide />
-          {task.allowedWords?.length ? <details style={{ marginTop: 12 }}><summary>{t("Words for this task")}</summary><p className="mono muted">{task.allowedWords.join(', ')}</p></details> : null}
+          <p><Link to="/guide">{t('LWLang guide')} →</Link></p>
         </Panel>
 
         <div className="workspace">
@@ -225,6 +224,12 @@ function TaskWorkspace({ task }: { task: Task }) {
             <div className="notice">
               <Link to="/auth">{t("Sign in")}</Link> {t("to run code and publish a solution.")}</div>
           )}
+
+          {user && task.nameBudget && <div className="name-budget row wrap" role="status" style={{ gap: 16 }}>
+            <span title={t('All names claimed by your account')}>{t('Names')} <strong>{formatNumber(task.nameBudget.used)} / {formatNumber(task.nameBudget.limit)}</strong></span>
+            <span title={t('Names claimed by your accepted solutions for this task')}>{t('This task')} <strong>{formatNumber(task.nameBudget.taskUsed)} / {formatNumber(task.nameBudget.taskLimit)}</strong></span>
+            <span>{t('Core overrides')} <strong>{formatNumber(task.nameBudget.coreUsed)} / {formatNumber(task.nameBudget.coreLimit)}</strong></span>
+          </div>}
 
           <LwEditor
             code={code}
@@ -237,6 +242,8 @@ function TaskWorkspace({ task }: { task: Task }) {
             running={run.isPending}
             submitting={submit.isPending}
           />
+
+          {run.error && <ErrorNotice message={messageOf(run.error)} />}
 
           {user && task.resubmitPenalty?.enabled && task.resubmitPenalty.points > 0 && <div className="notice" role="status">{t('Already solved · resubmission costs {points} points ({percent}%). Runs are free.', { points: task.resubmitPenalty.points, percent: task.resubmitPenalty.percent })}</div>}
 
@@ -290,7 +297,7 @@ function TaskWorkspace({ task }: { task: Task }) {
                 </div>
                 <div className="verdict-stats" style={{ marginTop: 8 }}>
                   <span>
-                    {t("score ")}<strong>{verdict.submission.score}</strong>
+                    {t("score ")}<strong>{formatNumber(verdict.submission.score)}</strong>
                   </span>
                   <span>
                     {t("tests")}{' '}
@@ -306,8 +313,8 @@ function TaskWorkspace({ task }: { task: Task }) {
                       }}
                     >
                       {verdict.ratingUpdate.delta >= 0
-                        ? `+${verdict.ratingUpdate.delta}`
-                        : verdict.ratingUpdate.delta}
+                        ? `+${formatNumber(verdict.ratingUpdate.delta)}`
+                        : formatNumber(verdict.ratingUpdate.delta)}
                     </strong>
                   </span>
                   <span>
@@ -445,10 +452,8 @@ function TaskSubmissions({
             return (
               <tr
                 key={submission.id}
-                className={clsx('submission-row', !canOpen && 'private')}
-                onClick={() =>
-                  canOpen ? onOpen(submission.id) : toast('info', 'Code is private to its author.')
-                }
+                className={clsx('submission-row', !canOpen && 'private', submission.active === false && 'submission-inactive')}
+                onClick={() => onOpen(submission.id)}
               >
                 <td className="mono-cell">{formatRelative(submission.createdAt)}</td>
                 <td>
@@ -462,12 +467,12 @@ function TaskSubmissions({
                 </td>
                 {showImpact && <td><BreakImpactBadge impact={submission.breakImpact} /></td>}
                 <td className="score-cell" style={{ textAlign: 'right' }}>
-                  {submission.score}
+                  {formatNumber(submission.score)}
                 </td>
                 <td className="mono-cell">
                   {submission.testsPassed}/{submission.testsTotal}
                 </td>
-                <td className="mono-cell">{submission.durationMs} {t("ms")}</td>
+                <td className="mono-cell">{formatNumber(submission.durationMs)} {t("ms")}</td>
                 <td className="mono-cell">{submission.languageVersion}</td>
                 <td className="mono-cell dim">{canOpen ? <button className="filter-chip" onClick={(event) => { event.stopPropagation(); onOpen(submission.id) }}>{t("Open")}</button> : t("private")}</td>
               </tr>

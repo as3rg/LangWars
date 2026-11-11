@@ -1,3 +1,4 @@
+import { formatNumber } from '@/lib/numbers'
 import { t, useLocale } from '@/lib/i18n'
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
@@ -120,7 +121,7 @@ export function TasksPage() {
 
             <div className="task-card-foot">
               <span className="row" style={{ gap: 8 }}>
-                <span className="task-score">{task.score} {t("pts")}</span>
+                <span className="task-score">{formatNumber(task.score)} {t("pts")}</span>
                 <span>{plural(task.solvedBy, "solve")}</span>
                 {task.solved && (
                   <span className="solved-check">

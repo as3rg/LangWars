@@ -12,6 +12,24 @@ beforeEach(() => {
 })
 
 describe('submission history', () => {
+  it('requests the administrator-only performance snapshot with the current session', async () => {
+    const fetch = vi.fn().mockResolvedValue(json({ generatedAt: '2026-11-11T12:00:00Z' }))
+    vi.stubGlobal('fetch', fetch)
+    await api.performance()
+    expect(fetch.mock.calls[0][0]).toBe('/api/admin/performance')
+    expect(fetch.mock.calls[0][1].headers.get('Authorization')).toBe('Bearer session-one')
+  })
+  it('requests bounded rechecks caused by a submission with both cursor fields', async () => {
+    const fetch = vi.fn().mockResolvedValue(json({ items: [], nextCursor: null }))
+    vi.stubGlobal('fetch', fetch)
+    await api.submissionRechecks('sub_source', 'caused', { beforeCreated: '2026-11-11T12:00:00Z', beforeId: 'run_last' })
+    const url = new URL(fetch.mock.calls[0][0], 'http://localhost')
+    expect(url.pathname).toBe('/api/admin/submissions/sub_source/rechecks')
+    expect(url.searchParams.get('scope')).toBe('caused')
+    expect(url.searchParams.get('beforeCreated')).toBe('2026-11-11T12:00:00Z')
+    expect(url.searchParams.get('beforeId')).toBe('run_last')
+    expect(url.searchParams.get('limit')).toBe('50')
+  })
   it('sends both cursor fields so submissions sharing a timestamp remain reachable', async () => {
     const fetch = vi.fn().mockResolvedValue(json([]))
     vi.stubGlobal('fetch', fetch)
