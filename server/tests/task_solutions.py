@@ -50,7 +50,11 @@ TASK_SOLUTIONS = {
             push_back(ordered,get(items,cursor));
             let position=length(ordered)-1;
             while(position>0){
-                if(get(ordered,position)<get(ordered,position-1)){swap(ordered,position,position-1);}
+                if(get(ordered,position)<get(ordered,position-1)){
+                    let temporary=get(ordered,position);
+                    set(ordered,position,get(ordered,position-1));
+                    set(ordered,position-1,temporary);
+                }
                 position=position-1;
             }
             push_back(medians,get(ordered,(length(ordered)-1)/2));cursor=cursor+1;

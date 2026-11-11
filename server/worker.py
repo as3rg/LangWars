@@ -109,7 +109,7 @@ def ranking(tx, user_id):
     return next((i + 1 for i, user in enumerate(users) if user["id"] == user_id), 0)
 
 
-def schedule_rechecks(tx, changes, world, exclude=None, all_submissions=False, task_id=None):
+def schedule_rechecks(tx, changes, world, exclude=None, all_submissions=False, task_id=None, cause_submission_id=None):
     names = changed_names(changes)
     core_changed = any(function.get("annotation") not in (None, "solution") for definition in changes.get("functions", {}).values() for function in (definition if isinstance(definition, list) else [definition]))
     now = time.time()
@@ -120,6 +120,7 @@ def schedule_rechecks(tx, changes, world, exclude=None, all_submissions=False, t
         for name in names:
             candidate_ids.update(row[0] for row in tx.execute("SELECT submission_id FROM dependencies WHERE name=?", (name,)).fetchall())
         candidates = (tx.get("submissions", key) for key in candidate_ids)
+    scheduled = []
     for sub in candidates:
         if not sub:
             continue
@@ -131,8 +132,12 @@ def schedule_rechecks(tx, changes, world, exclude=None, all_submissions=False, t
         job = {"id": job_id, "userId": sub["userId"], "taskId": sub["taskId"], "submissionId": sub["id"],
                "code": sub["code"], "mode": "recheck", "languageVersion": sub["languageVersion"],
                "createdAt": iso(), "requestedVersion": world["version"]}
+        if cause_submission_id:
+            job["causeSubmissionId"] = cause_submission_id
         # A newer world invalidates any in-flight lease, so its result cannot overwrite this request.
         tx.execute("INSERT INTO jobs(id,user_id,status,created,lease,data) VALUES(?,?,'queued',?,0,?) ON CONFLICT(id) DO UPDATE SET status='queued',created=excluded.created,lease=0,data=excluded.data", (job_id, sub["userId"], now, dumps(job)))
+        scheduled.append(sub["id"])
+    return scheduled
 
 
 def lease_valid(tx, job):
@@ -222,6 +227,9 @@ def process_restore(store, job):
 
 
 def process_job(store, job):
+    if job["mode"] == "break_audit":
+        from .break_audits import process
+        return process(store, job)
     if job["mode"] == "restore":
         return process_restore(store, job)
     for attempt in range(5):
@@ -283,13 +291,21 @@ def process_job(store, job):
                 finish(tx, job, result=redact_tests(result, {**task, "tests": tests}))
                 return
             if sub:
-                sub.update(status=result["status"], tests=redact_tests(result, task)["tests"], diagnostics=result["diagnostics"],
+                from .notifications import reconcile_solution
+                passing = result["status"] == "OK"
+                sub.setdefault("notificationState", {"passing": sub["status"] == "OK", "version": sub.get("worldVersion", 0)})
+                sub.update(status="OK" if passing else "BROKEN", verdictStatus=result["status"], tests=redact_tests(result, task)["tests"], diagnostics=result["diagnostics"],
                            testsPassed=sum(bool(t.get("passed")) for t in result["tests"]), testsTotal=len(result["tests"]),
                            score=task["score"] if result["status"] == "OK" else 0, recheckedAt=iso(), worldVersion=latest["version"], dependencies=result.get("dependencies", []))
                 tx.put("submissions", sub["id"], sub)
+                reconcile_solution(tx, sub, task)
                 refresh_ratings(tx)
-                finish(tx, job, result={"status": result["status"], "submissionId": sub["id"]})
+                finish(tx, job, result={"status": sub["status"], "verdictStatus": result["status"], "submissionId": sub["id"]})
                 return
+            from .break_audits import capacity_available, schedule as schedule_audit
+            from .notifications import event
+            if result["status"] == "OK" and changed_names(effective_changes(latest["snapshot"], result.get("changes", {}))) and not capacity_available(tx):
+                result = failure("Notifications are catching up; try submitting again shortly", "FAIL", "NOTIFICATION_BACKLOG")
             before_rating = latest_user["rating"] + job.get("penaltyPoints", 0)
             before_rank = ranking(tx, user["id"])
             submission_id = uid("sub_")
@@ -301,17 +317,19 @@ def process_job(store, job):
                           "testsPassed": sum(bool(t.get("passed")) for t in result["tests"]), "testsTotal": len(result["tests"]),
                           "tests": clean["tests"], "diagnostics": result["diagnostics"], "stdout": result["stdout"],
                           "dependencies": result.get("dependencies", []), "names": sorted(names), "everAccepted": result["status"] == "OK",
-                          "worldVersion": latest["version"], "penaltyPoints": job.get("penaltyPoints", 0)}
+                          "worldVersion": latest["version"], "penaltyPoints": job.get("penaltyPoints", 0), "verdictStatus": result["status"]}
             if result["status"] == "OK":
                 # Quotas and account state can change independently of the namespace version.
                 if len(set(latest_user.get("claimedNames", [])) | names) > latest_user["nameLimit"]:
-                    submission.update(status="CE", score=0, everAccepted=False, diagnostics=[diagnostic("Your unique-name limit changed during execution", "NAME_LIMIT")])
+                    submission.update(status="CE", verdictStatus="CE", score=0, everAccepted=False, diagnostics=[diagnostic("Your unique-name limit changed during execution", "NAME_LIMIT")])
                 else:
+                    previous_world = copy.deepcopy(latest)
                     changes = result.get("changes", {})
                     invalidations = effective_changes(latest["snapshot"], changes)
                     latest["snapshot"] = merged_snapshot(latest["snapshot"], changes)
                     latest["version"] += 1
                     submission["worldVersion"] = latest["version"]
+                    submission["notificationState"] = {"passing": True, "version": latest["version"]}
                     for name in set(changes.get("variables", {})) | set(changes.get("functions", {})):
                         latest["owners"][name] = submission_id
                         latest.setdefault("ownerUsers", {})[name] = user["id"]
@@ -319,11 +337,14 @@ def process_job(store, job):
                     latest_user.get("solvedOverrides", {}).pop(task["id"], None)
                     tx.put("users", user["id"], latest_user)
                     tx.save_world(latest)
-                    schedule_rechecks(tx, invalidations, latest, exclude=submission_id)
+                    affected = schedule_rechecks(tx, invalidations, latest, exclude=submission_id, cause_submission_id=submission_id)
+                    schedule_audit(tx, previous_world, latest, submission, affected)
             tx.put("submissions", submission_id, submission)
+            notice = event(tx, user["id"], "accepted" if submission["status"] == "OK" else "rejected", "result:" + submission_id,
+                  taskId=task["id"], taskTitle=task["title"], submissionId=submission_id, verdictStatus=submission["status"])
             refresh_ratings(tx)
             updated = tx.get("users", user["id"])
-            finish(tx, job, result={"submission": {key: val for key, val in submission.items() if key not in {"dependencies", "names"}},
+            finish(tx, job, result={"notificationId": notice["id"], "submission": {key: val for key, val in submission.items() if key not in {"dependencies", "names", "notificationState"}},
                                    "ratingUpdate": {"tableId": "global", "delta": updated["rating"] - before_rating, "newScore": updated["rating"], "rank": ranking(tx, user["id"]), "rankBefore": before_rank}})
             return
     with store.transaction() as tx:
@@ -350,7 +371,12 @@ def main():
             if job:
                 try:
                     with store.transaction() as tx:
-                        finish(tx, job, error={"code": "WORKER_ERROR", "message": "The worker could not complete this request"})
+                        if job.get("mode") == "break_audit" and lease_valid(tx, job):
+                            retry = dict(job)
+                            retry.pop("lease", None)
+                            tx.execute("UPDATE jobs SET status='queued',created=?,lease=0,data=? WHERE id=? AND lease=?", (time.time(), dumps(retry), job["id"], job["lease"]))
+                        else:
+                            finish(tx, job, error={"code": "WORKER_ERROR", "message": "The worker could not complete this request"})
                 except Exception:
                     log.exception("Could not finalize failed job; its lease will recover")
             time.sleep(1)

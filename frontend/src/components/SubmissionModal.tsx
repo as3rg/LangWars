@@ -1,4 +1,5 @@
 import { t, useLocale } from '@/lib/i18n'
+import { BreakImpactBadge } from './BreakImpact'
 import { useEffect, useRef, useState } from 'react'
 import { Check, Clipboard, X } from 'lucide-react'
 import { useSubmissionDetail } from '@/api/hooks'
@@ -88,6 +89,7 @@ export function SubmissionModal({ id, onClose }: { id: string; onClose: () => vo
             <>
               <div className="row wrap" style={{ gap: 12 }}>
                 <StatusPill status={detail.data.status} />
+                {detail.data.breakImpact && <BreakImpactBadge impact={detail.data.breakImpact} />}
                 <span className="mono" style={{ fontSize: 12, color: 'var(--muted)' }}>
                   {detail.data.score} {t("pts · ")}{detail.data.testsPassed}/{detail.data.testsTotal} {t("tests ·")}{' '}
                   {formatDuration(detail.data.durationMs)} · {formatDateTime(detail.data.createdAt)}

@@ -6,6 +6,7 @@ import { ListFilter, Lock, ScrollText } from 'lucide-react'
 import { useAllSubmissions, useSession, useTasks } from '@/api/hooks'
 import type { SubmissionSummary } from '@/api/types'
 import { SubmissionModal } from '@/components/SubmissionModal'
+import { BreakImpactBadge } from '@/components/BreakImpact'
 import {
   Badge,
   EmptyState,
@@ -33,6 +34,7 @@ export function SubmissionsPage() {
     if (taskFilter === 'all') return list
     return list.filter((submission) => submission.taskId === taskFilter)
   }, [submissions.data, taskFilter])
+  const showImpact = rows.some((submission) => submission.breakImpact !== undefined)
 
   return (
     <div>
@@ -99,6 +101,7 @@ export function SubmissionsPage() {
                     <th>{t("Cat")}</th>
                     <th>{t("Task")}</th>
                     <th>{t("Status")}</th>
+                    {showImpact && <th>{t('Broke')}</th>}
                     <th style={{ textAlign: 'right' }}>{t("Score")}</th>
                     <th>{t("Tests")}</th>
                     <th>{t("Time")}</th>
@@ -132,6 +135,7 @@ export function SubmissionsPage() {
                         <td>
                           <StatusPill status={submission.status} />
                         </td>
+                        {showImpact && <td><BreakImpactBadge impact={submission.breakImpact} /></td>}
                         <td className="score-cell" style={{ textAlign: 'right' }}>
                           {submission.score}
                         </td>

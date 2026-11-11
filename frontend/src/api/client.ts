@@ -18,6 +18,8 @@ import type {
   PlatformSettings,
   Invite,
   Namespace,
+  NotificationPage,
+  UserNotification,
 } from './types'
 
 const TOKEN_KEY = 'langwars.token'
@@ -96,11 +98,13 @@ type JobResponse<T> = { status: 'queued' | 'running' | 'completed' | 'failed'; r
 async function executeJob<T>(path: string, body: unknown): Promise<T> {
   const token = tokenStore.get()
   const accepted = await apiFetch<{ jobId: string }>(path, jsonBody(body))
+  if (!token || tokenStore.get() !== token) throw new ApiError(401, 'SESSION_CHANGED', 'Your session changed. Sign in to check your submissions.')
   const deadline = Date.now() + 15 * 60_000
   for (;;) {
     await new Promise((resolve) => globalThis.setTimeout(resolve, 900))
     if (!token || tokenStore.get() !== token) throw new ApiError(401, 'SESSION_CHANGED', 'Your session changed. Sign in to check your submissions.')
     const job = await apiFetch<JobResponse<T>>(`/jobs/${encodeURIComponent(accepted.jobId)}`)
+    if (tokenStore.get() !== token) throw new ApiError(401, 'SESSION_CHANGED', 'Your session changed. Sign in to check your submissions.')
     if (job.status === 'completed' && job.result !== undefined) return job.result
     if (job.status === 'failed') throw new ApiError(422, job.error?.code ?? 'JOB_FAILED', job.error?.message ?? 'Execution failed')
     if (Date.now() > deadline) throw new ApiError(408, 'JOB_TIMEOUT', 'The worker is taking longer than expected. Check submissions before retrying.')
@@ -142,6 +146,14 @@ export const api = {
     return apiFetch<SubmissionSummary[]>(`/submissions${query ? `?${query}` : ''}`)
   },
   submission: (id: string) => apiFetch<Submission>(`/submissions/${id}`),
+
+  notifications: (cursor?: SubmissionCursor) => {
+    const search = new URLSearchParams({ limit: '50' })
+    if (cursor) { search.set('beforeCreated', cursor.beforeCreated); search.set('beforeId', cursor.beforeId) }
+    return apiFetch<NotificationPage>(`/notifications?${search}`)
+  },
+  readNotifications: (ids?: string[]) => apiFetch<void>('/notifications/read', jsonBody(ids ? { ids } : { all: true })),
+  createNotification: (kind: 'info' | 'success' | 'error', message: string) => apiFetch<UserNotification>('/notifications', jsonBody({ kind, message })),
 
   ratingTables: () => apiFetch<RatingTableDescriptor[]>('/rating/tables'),
   rating: (table: string, search = '') => apiFetch<RatingTable>(`/rating?table=${encodeURIComponent(table)}&q=${encodeURIComponent(search)}`),

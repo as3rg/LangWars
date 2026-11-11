@@ -5,7 +5,7 @@ WORDS = "a b c x y z n i j k in out input output value values result answer solv
 
 
 def initial_world():
-    return {"version": 0, "snapshot": {"variables": {}, "functions": {}, "last": {}}, "owners": {}, "settings": {
+    return {"version": 0, "languageRevision": "no-swap-2026-11", "snapshot": {"variables": {}, "functions": {}, "last": {}}, "owners": {}, "settings": {
         "registrationMode": "invite", "defaultNameLimit": 100, "maxNameLength": 48,
         "worldVisibility": {
             "variables": {"names": "public", "values": "admin_only"},
@@ -13,6 +13,7 @@ def initial_world():
         },
         "runCooldownSeconds": 2, "submitCooldownSeconds": 10,
         "resubmitPenaltyEnabled": False, "resubmitPenaltyPercent": 5,
+        "solutionNotificationsEnabled": True, "showBreakerIdentity": False, "breakImpactVisibility": "count",
         "allowedWords": sorted(set(WORDS)), "denyWords": [],
         "permittedOverrides": OPERATIONS, "defaultCoreOverrideLimit": 2, "maxQueuedJobs": 300,
     }}

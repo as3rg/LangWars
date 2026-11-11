@@ -16,6 +16,7 @@ from .auth import issue_session, password_hash, password_matches, prohibited, pu
 from .seed import OPERATIONS
 from .scoring import refresh_ratings, resubmit_penalty, solved_tasks, solved_task_map
 from .store import Store, dumps, iso, uid
+from .notifications import event as notification_event, project as project_notification, project_submission
 
 
 def fail(status, code, message, headers=None):
@@ -63,13 +64,17 @@ def public_task(task, tx=None, user=None, admin=False):
             tx.public_solves = solved_task_map(tx, [player for player in tx.list("users") if not player.get("banned")])
         result["solvedBy"] = sum(task["id"] in solved for solved in tx.public_solves.values())
         result["solved"] = bool(user and task["id"] in tx.public_solves.get(user["id"], set()))
+        broken = bool(user and tx.execute("SELECT 1 FROM records WHERE kind='submissions' AND task_id=? AND user_id=? AND accepted=1 AND state<>'OK' LIMIT 1", (task["id"], user["id"])).fetchone())
         result["attempted"] = bool(user and tx.execute("SELECT 1 FROM records WHERE kind='submissions' AND task_id=? AND user_id=? LIMIT 1", (task["id"], user["id"])).fetchone())
+        result["broken"] = broken and not result["solved"]
+        result["status"] = "solved" if result["solved"] else "broken" if broken else "attempted" if result["attempted"] else "new"
         result["resubmitPenalty"] = resubmit_penalty(tx, user, task, tx.get("system", "world")["settings"], solved=result["solved"])
     return result
 
 
-def summary(sub):
-    return {key: val for key, val in sub.items() if key not in {"code", "tests", "diagnostics", "stdout", "dependencies", "names", "changes", "lease"}}
+def summary(sub, tx, viewer=None):
+    value = {key: val for key, val in sub.items() if key not in {"code", "tests", "diagnostics", "stdout", "dependencies", "names", "changes", "lease"}}
+    return project_submission(tx, value, tx.get("system", "world")["settings"], viewer=viewer)
 
 
 def create_app(database_url=None):
@@ -184,7 +189,59 @@ def create_app(database_url=None):
     def config():
         with store.transaction() as tx:
             settings = tx.get("system", "world")["settings"]
-            return {key: settings[key] for key in ["registrationMode", "runCooldownSeconds", "submitCooldownSeconds", "allowedWords", "maxNameLength", "resubmitPenaltyEnabled", "resubmitPenaltyPercent"]}
+            return {key: settings[key] for key in ["registrationMode", "runCooldownSeconds", "submitCooldownSeconds", "allowedWords", "maxNameLength", "resubmitPenaltyEnabled", "resubmitPenaltyPercent", "solutionNotificationsEnabled", "showBreakerIdentity", "breakImpactVisibility"]}
+
+    @app.get("/api/notifications")
+    def notifications(request: Request, limit: int = 50, beforeCreated: str | None = None, beforeId: str | None = None):
+        limit = integer(limit, "limit", 1, 100)
+        if (beforeCreated is None) != (beforeId is None):
+            fail(422, "BAD_CURSOR", "Supply both cursor fields")
+        if beforeCreated is not None:
+            text(beforeCreated, "beforeCreated", 20, 40)
+            text(beforeId, "beforeId", 1, 80)
+            if not re.fullmatch(r"[0-9T:.+Z-]+", beforeCreated) or not re.fullmatch(r"ntf_[a-f0-9]+", beforeId):
+                fail(422, "BAD_CURSOR", "Invalid notification cursor")
+        with store.transaction() as tx:
+            user = current(request, tx)
+            settings = tx.get("system", "world")["settings"]
+            all_items = tx.list("notifications", user_id=user["id"])
+            visible = [clean for item in all_items if (clean := project_notification(tx, item, settings)) is not None]
+            items = [item for item in visible if beforeCreated is None or item["createdAt"] < beforeCreated or item["createdAt"] == beforeCreated and item["id"] > beforeId]
+            return {"items": items[:limit], "unreadCount": sum(not item.get("read", False) for item in visible),
+                    "enabled": settings.get("solutionNotificationsEnabled", True), "showBreakerIdentity": settings.get("showBreakerIdentity", False), "breakImpactVisibility": settings.get("breakImpactVisibility", "count")}
+
+    @app.post("/api/notifications", status_code=201)
+    def create_notification(request: Request, body: dict = Body(...)):
+        if set(body) != {"kind", "message"} or body.get("kind") not in ("info", "success", "error"):
+            fail(422, "BAD_BODY", "Only informational client notifications can be created")
+        message = text(body.get("message"), "message", 1, 2000)
+        with store.transaction() as tx:
+            tx.world()
+            user = current(request, tx)
+            key = "notifications:" + user["id"]
+            now = time.time()
+            entries = [entry for entry in (tx.get("throttle", key) or []) if entry > now - 60]
+            if len(entries) >= 120:
+                fail(429, "RATE_LIMIT", "Too many notifications", {"Retry-After": "60"})
+            tx.put("throttle", key, entries + [now])
+            return project_notification(tx, notification_event(tx, user["id"], body["kind"], uid("client_"), message=message), tx.get("system", "world")["settings"])
+
+    @app.post("/api/notifications/read", status_code=204)
+    def read_notifications(request: Request, body: dict = Body(...)):
+        if body == {"all": True}:
+            identifiers = None
+        elif set(body) == {"ids"}:
+            identifiers = words(body["ids"], "ids", 100)
+        else:
+            fail(422, "BAD_BODY", "Supply notification ids or all:true")
+        with store.transaction() as tx:
+            tx.world()
+            user = current(request, tx)
+            for item in tx.list("notifications", user_id=user["id"]):
+                if identifiers is None or item["id"] in identifiers:
+                    item["read"] = True
+                    tx.put("notifications", item["id"], item)
+        return Response(status_code=204)
 
     @app.post("/api/auth/login")
     def login(request: Request, body: dict = Body(...)):
@@ -320,6 +377,10 @@ def create_app(database_url=None):
             user = current(request, tx)
             task = find_task(tx, task_id)
             settings = world["settings"]
+            if mode == "submit":
+                from .break_audits import capacity_available
+                if not capacity_available(tx):
+                    fail(429, "NOTIFICATION_BACKLOG", "Notifications are catching up; try again shortly", {"Retry-After": "5"})
             clean_text(code, "code", settings, 1, 65536)
             cooldown = settings["runCooldownSeconds" if mode == "run" else "submitCooldownSeconds"]
             field = "lastRun" if mode == "run" else "lastSubmit"
@@ -359,9 +420,22 @@ def create_app(database_url=None):
             if not row or (row[0] != user["id"] and user["role"] != "admin"):
                 fail(404, "NOT_FOUND", "Job not found")
             job = json.loads(row[2])
+            if isinstance(job.get("result"), dict):
+                result = dict(job["result"])
+                settings = tx.get("system", "world")["settings"]
+                if "submission" in result:
+                    actual = tx.get("submissions", result["submission"]["id"]) or result["submission"]
+                    result["submission"] = project_submission(tx, {key: val for key, val in actual.items() if key not in {"dependencies", "names"}}, settings, viewer=user)
+                notification = tx.get("notifications", result.get("notificationId", ""))
+                if notification and notification["userId"] == user["id"]:
+                    projected = project_notification(tx, notification, settings)
+                    if projected is not None:
+                        result["notification"] = projected
+                result.pop("notificationId", None)
+                job["result"] = result
             return {key: val for key, val in {"status": row[1], "result": job.get("result"), "error": job.get("error")}.items() if val is not None}
 
-    def submission_list(tx, task_id=None, user_id=None, limit=50, before_created=None, before_id=None):
+    def submission_list(tx, task_id=None, user_id=None, limit=50, before_created=None, before_id=None, viewer=None):
         if (before_created is None) != (before_id is None):
             fail(422, "BAD_CURSOR", "beforeCreated and beforeId must be supplied together")
         if before_created is not None:
@@ -375,20 +449,20 @@ def create_app(database_url=None):
             except ValueError:
                 fail(422, "BAD_CURSOR", "Invalid submission cursor date")
         values = tx.list("submissions", task_id=task_id, user_id=user_id, limit=max(1, min(limit, 500)), before_created=before_created, before_id=before_id)
-        return [summary(s) for s in values]
+        return [summary(s, tx, viewer) for s in values]
 
     @app.get("/api/submissions")
     def submissions(request: Request, taskId: str | None = None, userId: str | None = None, limit: int = 50, beforeCreated: str | None = None, beforeId: str | None = None):
         with store.transaction() as tx:
-            current(request, tx)
-            return submission_list(tx, taskId, userId, limit, beforeCreated, beforeId)
+            viewer = current(request, tx)
+            return submission_list(tx, taskId, userId, limit, beforeCreated, beforeId, viewer=viewer)
 
     @app.get("/api/tasks/{task_id}/submissions")
     def task_submissions(task_id: str, request: Request, scope: str = "mine", limit: int = 50, beforeCreated: str | None = None, beforeId: str | None = None):
         with store.transaction() as tx:
             user = current(request, tx)
             task = find_task(tx, task_id)
-            return submission_list(tx, task["id"], None if scope == "all" else user["id"], limit, beforeCreated, beforeId)
+            return submission_list(tx, task["id"], None if scope == "all" else user["id"], limit, beforeCreated, beforeId, viewer=user)
 
     @app.get("/api/submissions/{submission_id}")
     def submission_detail(submission_id: str, request: Request):
@@ -399,7 +473,7 @@ def create_app(database_url=None):
                 fail(404, "NOT_FOUND", "Submission not found")
             if value["userId"] != user["id"] and user["role"] != "admin":
                 fail(403, "FORBIDDEN", "Code is private to its author")
-            result = {key: val for key, val in value.items() if key not in {"dependencies", "names", "changes"}}
+            result = project_submission(tx, {key: val for key, val in value.items() if key not in {"dependencies", "names", "changes"}}, tx.get("system", "world")["settings"], viewer=user)
             previous = tx.execute("SELECT data FROM records WHERE kind='submissions' AND user_id=? AND task_id=? AND created<? ORDER BY created DESC LIMIT 1", (value["userId"], value["taskId"], value["createdAt"])).fetchone()
             if previous:
                 previous = json.loads(previous[0])
@@ -531,9 +605,9 @@ def create_app(database_url=None):
     @app.get("/api/admin/summary")
     def admin_summary(request: Request):
         with store.transaction() as tx:
-            current(request, tx, admin=True)
+            viewer = current(request, tx, admin=True)
             counts = {kind: tx.execute("SELECT COUNT(*) FROM records WHERE kind=?", (kind,)).fetchone()[0] for kind in ["users", "tasks", "submissions", "news"]}
-            return {**counts, "pendingReports": 0, "recent": submission_list(tx, limit=10), "queuedJobs": tx.execute("SELECT COUNT(*) FROM jobs WHERE status IN ('queued','running')").fetchone()[0]}
+            return {**counts, "pendingReports": 0, "recent": submission_list(tx, limit=10, viewer=viewer), "queuedJobs": tx.execute("SELECT COUNT(*) FROM jobs WHERE status IN ('queued','running')").fetchone()[0]}
 
     @app.get("/api/admin/settings")
     def settings(request: Request):
@@ -561,9 +635,12 @@ def create_app(database_url=None):
                             fail(422, "BAD_BODY", "Each visibility policy needs names and values set to public or admin_only")
                 elif key == "maxNameLength":
                     value = integer(value, key, 1, 128)
-                elif key == "resubmitPenaltyEnabled":
+                elif key in ("resubmitPenaltyEnabled", "solutionNotificationsEnabled", "showBreakerIdentity"):
                     if type(value) is not bool:
-                        fail(422, "BAD_BODY", "resubmitPenaltyEnabled must be boolean")
+                        fail(422, "BAD_BODY", key + " must be boolean")
+                elif key == "breakImpactVisibility":
+                    if value not in ("usernames", "count", "hidden"):
+                        fail(422, "BAD_BODY", "Choose usernames, count or hidden")
                 elif key == "resubmitPenaltyPercent":
                     value = integer(value, key, 0, 100)
                 elif key in ["allowedWords", "denyWords", "permittedOverrides"]:
@@ -725,7 +802,10 @@ def create_app(database_url=None):
             tx.delete("usernames", user["username"].casefold())
             tx.execute("DELETE FROM dependencies WHERE submission_id IN (SELECT id FROM records WHERE kind='submissions' AND user_id=?)", (user_id,))
             tx.execute("DELETE FROM records WHERE kind='submissions' AND user_id=?", (user_id,))
-            tx.execute("DELETE FROM jobs WHERE user_id=?", (user_id,))
+            # Attribution jobs must finish releasing shared snapshots even if their
+            # source account disappears. Their worker skips missing source users.
+            tx.execute("DELETE FROM jobs WHERE user_id=? AND id NOT LIKE 'recheck_audit_%'", (user_id,))
+            tx.execute("DELETE FROM records WHERE kind='notifications' AND user_id=?", (user_id,))
             tx.audit(admin["id"], "delete_user", user_id)
         return Response(status_code=204)
 
@@ -769,8 +849,8 @@ def create_app(database_url=None):
     @app.get("/api/admin/submissions")
     def admin_submissions(request: Request, limit: int = 100, beforeCreated: str | None = None, beforeId: str | None = None):
         with store.transaction() as tx:
-            current(request, tx, admin=True)
-            return submission_list(tx, limit=limit, before_created=beforeCreated, before_id=beforeId)
+            viewer = current(request, tx, admin=True)
+            return submission_list(tx, limit=limit, before_created=beforeCreated, before_id=beforeId, viewer=viewer)
 
     @app.get("/api/admin/audit")
     def audit(request: Request):

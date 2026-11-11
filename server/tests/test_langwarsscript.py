@@ -40,6 +40,15 @@ class LanguageTests(unittest.TestCase):
         self.assert_ok("let array = []; push_back(array,array); return length(get(array,0));", 0)
         self.assert_ok("let data = {}; set(data,0,data); return length(get(data,0));", 0)
 
+    def test_swap_is_an_ordinary_name_with_no_implicit_mutation(self):
+        self.assert_ok("let first=1;let second=2;let result=swap(first,second);return [first,second,result];", [1, 2, 0])
+        self.assert_ok('let array=[3,4];let data={"a":8,"b":9};swap(array,0,1);swap(data,"a","b");return [get(array,0),get(array,1),get(data,"a"),get(data,"b")];', [3, 4, 8, 9])
+        self.assert_ok("return swap(2,3);", 5, prefix="fn swap(first,second){return first+second;}")
+        self.assert_ok("return swap(2,3);", 17, prefix="let swap=17;")
+        restricted = self.run_code("return swap(2,3);", 0, options={"allowed_words": ["solve", "left", "right"]})
+        self.assertEqual(restricted["status"], "CE", restricted)
+        self.assertEqual(restricted["diagnostics"][0]["code"], "INVALID_NAME")
+
     def test_cast_matrix(self):
         self.assert_ok('return int("123");', 3)
         self.assert_ok("return int([1,2,[3]]);", 6)

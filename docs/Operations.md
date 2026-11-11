@@ -82,6 +82,23 @@ Scores count each currently passing task once per user. The rating selector offe
 
 The optional repeat-submission charge is disabled by default. Enable it and choose the percentage in administration. Submitting a currently green task then costs `ceil(task score * percentage / 100)` points, with confirmation before the job is queued. The charge occurs once at queue admission, even if the new code fails; retries by workers do not charge again. Runs, automatic rechecks, rejected admission requests and submissions to currently broken/unsolved tasks are free. Charges persist across rechecks and remain part of the score if the setting is later disabled. The frontend warns on green tasks, while the API independently requires explicit acceptance whenever a charge applies.
 
+The notification bell keeps account-scoped history of submission results, broken
+and repaired solutions, and ordinary application popups. Notifications are enabled
+by default; breaker identities are hidden and breaking-submission impact shows a
+distinct-player count. Administration can disable solution notifications, show
+breaker identities, or switch impact disclosure between usernames, count and
+hidden. These policies are applied by the API to existing history too. A failed
+recheck of an ever-accepted submission is shown as `BROKEN`, with the underlying
+judge verdict retained separately. A task stays solved while any of that player's
+solutions still passes, subject to explicit administrative corrections.
+
+Breaking credit uses separate comparisons against the immutable worlds before
+and after a publication. It does not assume the last publisher caused every
+failure observed by a later recheck. Pending comparison storage is bounded and
+backpressure can temporarily defer new publications while workers catch up.
+History is limited to the most recent 500 entries per account; reopening the site
+does not replay old popup animations. Effects respect reduced-motion preferences.
+
 ## Execution boundary
 
 Player source is parsed into a dedicated language tree and interpreted without host `eval`, `exec`, imports, filesystem access, subprocess calls, or networking. Execution has independent source, syntax depth, instruction, call, value, and collection limits. Interpreter subprocesses receive a minimal environment rather than database or bootstrap credentials. Linux resource limits and a parent wall timeout provide additional containment.

@@ -90,9 +90,32 @@ describe('queued execution', () => {
     await vi.advanceTimersByTimeAsync(20_000)
     await rejected
   })
+  it('does not deliver a completed outcome or notification from an in-flight request after switching accounts', async () => {
+    const fetch = vi.fn().mockResolvedValueOnce(json({ jobId: 'job-one' }, 202)).mockImplementationOnce(async () => {
+      tokenStore.set('session-two')
+      return json({ status: 'completed', result: { ...result, notification: { id: 'private-notification' } } })
+    })
+    vi.stubGlobal('fetch', fetch)
+    const pending = api.run('task-one', 'code', 'v0.3')
+    const rejected = expect(pending).rejects.toMatchObject({ code: 'SESSION_CHANGED' })
+    await vi.advanceTimersByTimeAsync(900)
+    await rejected
+  })
 })
 
 describe('world and player search', () => {
+  it('uses the notification cursor and marks only the requested entries read', async () => {
+    const fetch = vi.fn().mockResolvedValueOnce(json({ items: [], unreadCount: 0 })).mockResolvedValueOnce(new Response(null, { status: 204 })).mockResolvedValueOnce(new Response(null, { status: 204 }))
+    vi.stubGlobal('fetch', fetch)
+    await api.notifications({ beforeCreated: '2026-11-11T12:00:00Z', beforeId: 'notice-one' })
+    const url = new URL(fetch.mock.calls[0][0], 'http://localhost')
+    expect(url.searchParams.get('beforeCreated')).toBe('2026-11-11T12:00:00Z')
+    expect(url.searchParams.get('beforeId')).toBe('notice-one')
+    await api.readNotifications(['notice-one'])
+    expect(JSON.parse(fetch.mock.calls[1][1].body)).toEqual({ ids: ['notice-one'] })
+    await api.readNotifications()
+    expect(JSON.parse(fetch.mock.calls[2][1].body)).toEqual({ all: true })
+  })
   it('passes the world revision with administrator edits', async () => {
     const fetch = vi.fn().mockResolvedValue(json({ version: 8 }))
     vi.stubGlobal('fetch', fetch)

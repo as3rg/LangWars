@@ -1,6 +1,9 @@
 import { t, useLocale } from '@/lib/i18n'
 import { AlertCircle, CheckCircle2, Info, X } from 'lucide-react'
 import { useToastStore } from '@/store/ui'
+import { notificationText } from '@/lib/notifications'
+import { useTasks } from '@/api/hooks'
+import type { CSSProperties } from 'react'
 
 const ICONS = {
   success: CheckCircle2,
@@ -12,6 +15,7 @@ export function ToastHost() {
   useLocale()
   const toasts = useToastStore((state) => state.toasts)
   const dismiss = useToastStore((state) => state.dismiss)
+  const tasks = useTasks()
 
   if (toasts.length === 0) return null
 
@@ -20,9 +24,11 @@ export function ToastHost() {
       {toasts.map((toast) => {
         const Icon = ICONS[toast.kind]
         return (
-          <div className={`toast toast-${toast.kind}`} key={toast.id}>
+          <div className={`toast toast-${toast.kind}${toast.effect ? ` toast-${toast.effect}` : ''}`} key={toast.id}>
+            {toast.effect === 'fireworks' && <span className="toast-burst" aria-hidden="true">{Array.from({ length: 10 }, (_, index) => <i key={index} style={{ '--ray': index } as CSSProperties} />)}</span>}
+            {toast.effect === 'destruction' && <span className="toast-static" aria-hidden="true">0101 // SIGNAL LOST // 1010</span>}
             <Icon size={16} color={toast.kind === 'error' ? 'var(--magenta)' : 'var(--cyan)'} />
-            <span className="grow">{t(toast.message)}</span>
+            <span className="grow">{toast.notification ? notificationText(toast.notification, tasks.data?.find((task) => task.id === toast.notification!.taskId)?.title) : t(toast.message)}</span>
             <button className="icon-btn" style={{ width: 22, height: 22 }} onClick={() => dismiss(toast.id)} aria-label={t("Dismiss")}>
               <X size={12} />
             </button>

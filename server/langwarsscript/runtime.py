@@ -12,7 +12,7 @@ TYPES = ("int", "string", "list", "dict")
 OPERATIONS = ("eq", "cmp", "get", "set", "length", "contains", "empty", "push_back", "truthy", "concat", "cast")
 BUILTINS = {f"__builtin_{n}__" for n in ("eq", "lt", "get", "set", "length", "concat")}
 KEYWORDS = {"fn", "let", "return", "if", "else", "while", "comefrom", "and", "or", "not", "solution", "float", "function"}
-RESERVED = set(OPERATIONS) | set(TYPES) | BUILTINS | KEYWORDS | {"swap"}
+RESERVED = set(OPERATIONS) | set(TYPES) | BUILTINS | KEYWORDS
 LIMIT = 1_000_000
 
 class Rejected(Exception):
@@ -758,7 +758,7 @@ class Runtime:
             return (left + right)[:LIMIT]
         return 0
 
-    def call(self, name, args, arg_exprs=None):
+    def call(self, name, args):
         self.tick()
         if name in BUILTINS:
             if self.contract not in OPERATIONS:
@@ -771,16 +771,6 @@ class Runtime:
         if self.contract: raise Rejected(f"Only builtin calls are allowed in @{self.contract}", "CONTRACT")
         if name in TYPES: return self.cast(args[0] if args else 0, name)
         if name in OPERATIONS: return self.operation(name, args)
-        if name == "swap":
-            if len(args) == 2:
-                for expr, value in zip(arg_exprs or [], reversed(args)):
-                    if expr[0] == "name" and expr[1] not in RESERVED: self.write(expr[1], value)
-            elif len(args) >= 3:
-                a, i, j = args[:3]
-                left, right = self.builtin("get", [a, i]), self.builtin("get", [a, j])
-                self.builtin("set", [a, i, right])
-                self.builtin("set", [a, j, left])
-            return 0
         self.dependencies.add(name)
         return self.invoke(self.functions[name], args) if name in self.functions else self.read(name)
 
@@ -847,7 +837,7 @@ class Runtime:
             result = Dictionary()
             for key, value in expr[1]: self.store(result, self.expr(key), self.expr(value))
             return result
-        if tag == "call": return self.call(expr[1], [self.argument(v, expr[1] in OPERATIONS) for v in expr[2]], expr[2])
+        if tag == "call": return self.call(expr[1], [self.argument(v, expr[1] in OPERATIONS) for v in expr[2]])
         if tag == "unary":
             value = self.argument(expr[2], expr[1] == "not")
             return int(not self.operation("truthy", [value])) if expr[1] == "not" else wrap(-self.cast(value, "int"))

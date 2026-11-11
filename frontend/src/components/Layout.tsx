@@ -4,6 +4,7 @@ import clsx from 'clsx'
 import { CatMascot } from './CatMascot'
 import { Avatar, LinkButton } from './ui'
 import { ToastHost } from './ToastHost'
+import { NotificationBell } from './NotificationBell'
 import { useSession, useLogout } from '@/api/hooks'
 import { useUiStore, toast } from '@/store/ui'
 import { useLocale, t } from '@/lib/i18n'
@@ -70,6 +71,7 @@ export function Layout() {
 
             {user ? (
               <>
+                <NotificationBell />
                 <Link to="/rating" className="user-chip" title={t("Global rating")}>
                   <Avatar username={user.username} hue={user.avatarHue} />
                   <span className="mono" style={{ fontSize: 12 }}>

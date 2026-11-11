@@ -3,13 +3,14 @@ import argparse
 import time
 from datetime import datetime, timedelta, timezone
 
-from .store import Store
+from .store import Store, dumps, iso
 
 
 def cleanup(store, job_days=7, rejected_days=30, audit_days=180):
     now = time.time()
-    counts = {"jobs": 0, "sessions": 0, "throttle": 0, "auth_failures": 0, "rejectedSubmissions": 0, "audit": 0}
+    counts = {"jobs": 0, "sessions": 0, "throttle": 0, "auth_failures": 0, "rejectedSubmissions": 0, "audit": 0, "recoveredBreakAudits": 0}
     with store.transaction() as tx:
+        tx.world()
         counts["jobs"] = tx.execute("DELETE FROM jobs WHERE status IN ('completed','failed') AND created<?", (now - job_days * 86400,)).rowcount
         for kind in ("sessions", "throttle", "auth_failures"):
             for row in tx.execute("SELECT id,data FROM records WHERE kind=?", (kind,)).fetchall():
@@ -25,6 +26,15 @@ def cleanup(store, job_days=7, rejected_days=30, audit_days=180):
             counts["rejectedSubmissions"] += 1
         cutoff = (datetime.now(timezone.utc) - timedelta(days=audit_days)).isoformat().replace("+00:00", "Z")
         counts["audit"] = tx.execute("DELETE FROM records WHERE kind='audit' AND created<?", (cutoff,)).rowcount
+        # Recover pending comparisons whose queue rows were removed by older
+        # deployments or an interrupted manual cleanup; snapshots remain intact.
+        for audit in tx.list("break_audits"):
+            job_id = "recheck_audit_" + audit["id"]
+            row = tx.execute("SELECT status FROM jobs WHERE id=?", (job_id,)).fetchone()
+            if not row or row[0] in ("failed", "completed"):
+                job = {"id": job_id, "mode": "break_audit", "auditId": audit["id"], "userId": audit["userId"], "createdAt": iso()}
+                tx.execute("INSERT INTO jobs(id,user_id,status,created,lease,data) VALUES(?,?,'queued',?,0,?) ON CONFLICT(id) DO UPDATE SET status='queued',created=excluded.created,lease=0,data=excluded.data", (job_id, audit["userId"], now, dumps(job)))
+                counts["recoveredBreakAudits"] += 1
     return counts
 
 

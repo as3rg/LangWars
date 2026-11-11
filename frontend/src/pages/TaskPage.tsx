@@ -20,6 +20,7 @@ import { LanguageGuide } from '@/components/LanguageGuide'
 import { CatMascot } from '@/components/CatMascot'
 import { RatingTablePanel } from '@/components/RatingTablePanel'
 import { SubmissionModal } from '@/components/SubmissionModal'
+import { BreakImpactBadge } from '@/components/BreakImpact'
 import {
   Badge,
   DifficultyBadge,
@@ -119,12 +120,7 @@ function TaskWorkspace({ task }: { task: Task }) {
         onSuccess: (result) => {
           setVerdict(result)
           setChecked({ code, diagnostics: result.submission.diagnostics ?? [] })
-          toast(
-            result.submission.status === 'OK' ? 'success' : 'error',
-            result.submission.status === 'OK'
-              ? t('Accepted · {points} points', { points: result.ratingUpdate.delta >= 0 ? `+${result.ratingUpdate.delta}` : result.ratingUpdate.delta })
-              : t('Verdict: {status}', { status: result.submission.status }),
-          )
+          // The server notification feed owns verdict popups and their history.
         },
         onError: (error) => { if (error instanceof ApiError && error.code === 'PENALTY_CONFIRMATION_REQUIRED') queryTaskRefresh(); toast('error', messageOf(error)) },
       },
@@ -159,6 +155,7 @@ function TaskWorkspace({ task }: { task: Task }) {
             <ScorePill score={task.score} />
             <Badge tone="violet">{task.languageVersion}</Badge>
             {task.ratingTable && <Badge tone="amber">{t("event task")}</Badge>}
+            {task.broken && !task.solved && <Badge tone="magenta">{t('Broken')}</Badge>}
           </div>
           <h1>{task.title}</h1>
           <div className="task-meta-row">
@@ -423,6 +420,7 @@ function TaskSubmissions({
   if (query.isLoading) return <Loading label={t("loading submissions…")} />
   if (query.error) return <ErrorNotice message={t("Could not load submissions.")} />
   const items: SubmissionSummary[] = query.data ?? []
+  const showImpact = items.some((submission) => submission.breakImpact !== undefined)
   if (items.length === 0) return <EmptyState title={emptyTitle}>{emptyBody}</EmptyState>
 
   return (
@@ -433,6 +431,7 @@ function TaskSubmissions({
             <th>{t("When")}</th>
             <th>{t("Cat")}</th>
             <th>{t("Status")}</th>
+            {showImpact && <th>{t('Broke')}</th>}
             <th style={{ textAlign: 'right' }}>{t("Score")}</th>
             <th>{t("Tests")}</th>
             <th>{t("Time")}</th>
@@ -461,6 +460,7 @@ function TaskSubmissions({
                 <td>
                   <StatusPill status={submission.status} />
                 </td>
+                {showImpact && <td><BreakImpactBadge impact={submission.breakImpact} /></td>}
                 <td className="score-cell" style={{ textAlign: 'right' }}>
                   {submission.score}
                 </td>

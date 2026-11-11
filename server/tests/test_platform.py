@@ -174,13 +174,19 @@ class PlatformTests(unittest.TestCase):
     def submit_and_work(self, task_id, code, headers):
         response = self.client.post(f"/api/tasks/{task_id}/submit", json={"code": code}, headers=headers)
         self.assertEqual(response.status_code, 202, response.text)
-        process_job(self.store, self.store.claim())
+        for _ in range(200):
+            progress = self.client.get("/api/jobs/" + response.json()["jobId"], headers=headers).json()
+            if progress["status"] not in ("queued", "running"):
+                break
+            claimed = self.store.claim()
+            self.assertIsNotNone(claimed)
+            process_job(self.store, claimed)
         result = self.client.get("/api/jobs/" + response.json()["jobId"], headers=headers).json()
         self.assertEqual(result["status"], "completed", result)
         return result["result"]["submission"]
 
     def drain(self):
-        for _ in range(20):
+        for _ in range(2000):
             job = self.store.claim()
             if not job:
                 return
@@ -200,7 +206,8 @@ class PlatformTests(unittest.TestCase):
         self.assertEqual(second["status"], "OK")
         self.drain()
         broken = self.client.get("/api/submissions/" + first["id"], headers=first_headers).json()
-        self.assertEqual(broken["status"], "WRONG_ANSWER", broken)
+        self.assertEqual(broken["status"], "BROKEN", broken)
+        self.assertEqual(broken["verdictStatus"], "WRONG_ANSWER", broken)
         self.assertEqual(self.client.get("/api/me", headers=first_headers).json()["rating"], 0)
         self.submit_and_work(repair_task, "@solution fn helper_answer(){ let answer=10; return answer; }", second_headers)
         self.drain()

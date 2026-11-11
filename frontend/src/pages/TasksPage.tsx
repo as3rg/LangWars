@@ -126,7 +126,8 @@ export function TasksPage() {
                   <span className="solved-check">
                     <CheckCircle2 size={12} /> {t("solved")}</span>
                 )}
-                {!task.solved && task.attempted && <span className="badge badge-amber">{t("attempted")}</span>}
+                {!task.solved && task.broken && <span className="badge badge-magenta">{t('Broken')}</span>}
+                {!task.solved && !task.broken && task.attempted && <span className="badge badge-amber">{t("attempted")}</span>}
               </span>
               <span className="row" style={{ gap: 6 }}>
                 <span className="badge badge-violet">{task.languageVersion}</span>

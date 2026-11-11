@@ -4,6 +4,7 @@ import { api, ApiError } from './client'
 import type { NewsItem } from './types'
 import { useAuthStore } from '@/store/auth'
 import { localizeTask, useLocale } from '@/lib/i18n'
+import { notificationToast } from '@/store/ui'
 
 export const qk = {
   me: ['me'] as const,
@@ -201,6 +202,8 @@ export function useSubmit(taskId: string) {
       api.submit(taskId, code, version, acceptResubmitPenalty, expectedPenaltyPoints),
     onSuccess: (data) => {
       patchUser({ rating: data.ratingUpdate.newScore })
+      if (data.notification) notificationToast(data.notification)
+      queryClient.invalidateQueries({ queryKey: ['notifications'] })
       queryClient.invalidateQueries({ queryKey: qk.tasks })
       queryClient.invalidateQueries({ queryKey: qk.task(taskId) })
       queryClient.invalidateQueries({ queryKey: ['taskSubmissions', taskId] })

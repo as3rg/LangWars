@@ -119,6 +119,7 @@ export const STATUS_LABEL: Record<VerdictStatus, string> = {
   WRONG_ANSWER: 'Wrong answer',
   TLE: 'Time limit',
   CE: 'Compile error',
+  BROKEN: 'Broken',
 }
 
 export function StatusPill({ status }: { status: VerdictStatus }) {
