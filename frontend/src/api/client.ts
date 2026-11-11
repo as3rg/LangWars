@@ -18,6 +18,8 @@ import type {
   PlatformSettings,
   Invite,
   Namespace,
+  NotificationPage,
+  UserNotification,
 } from './types'
 
 const TOKEN_KEY = 'langwars.token'
@@ -96,11 +98,13 @@ type JobResponse<T> = { status: 'queued' | 'running' | 'completed' | 'failed'; r
 async function executeJob<T>(path: string, body: unknown): Promise<T> {
   const token = tokenStore.get()
   const accepted = await apiFetch<{ jobId: string }>(path, jsonBody(body))
+  if (!token || tokenStore.get() !== token) throw new ApiError(401, 'SESSION_CHANGED', 'Your session changed. Sign in to check your submissions.')
   const deadline = Date.now() + 15 * 60_000
   for (;;) {
     await new Promise((resolve) => globalThis.setTimeout(resolve, 900))
     if (!token || tokenStore.get() !== token) throw new ApiError(401, 'SESSION_CHANGED', 'Your session changed. Sign in to check your submissions.')
     const job = await apiFetch<JobResponse<T>>(`/jobs/${encodeURIComponent(accepted.jobId)}`)
+    if (tokenStore.get() !== token) throw new ApiError(401, 'SESSION_CHANGED', 'Your session changed. Sign in to check your submissions.')
     if (job.status === 'completed' && job.result !== undefined) return job.result
     if (job.status === 'failed') throw new ApiError(422, job.error?.code ?? 'JOB_FAILED', job.error?.message ?? 'Execution failed')
     if (Date.now() > deadline) throw new ApiError(408, 'JOB_TIMEOUT', 'The worker is taking longer than expected. Check submissions before retrying.')
@@ -116,7 +120,7 @@ export const api = {
     apiFetch<AuthResponse>('/auth/login', jsonBody({ username, password })),
   register: (username: string, password: string, inviteCode?: string) =>
     apiFetch<AuthResponse>('/auth/register', jsonBody({ username, password, inviteCode })),
-  config: () => apiFetch<Pick<PlatformSettings, 'registrationMode' | 'runCooldownSeconds' | 'submitCooldownSeconds' | 'allowedWords' | 'maxNameLength'>>('/config'),
+  config: () => apiFetch<Pick<PlatformSettings, 'registrationMode' | 'runCooldownSeconds' | 'submitCooldownSeconds' | 'allowedWords' | 'maxNameLength' | 'resubmitPenaltyEnabled' | 'resubmitPenaltyPercent'>>('/config'),
   logout: () => apiFetch<void>('/auth/logout', { method: 'POST' }),
   me: () => apiFetch<User>('/me'),
 
@@ -127,8 +131,8 @@ export const api = {
   task: (id: string) => apiFetch<Task>(`/tasks/${id}`),
   run: (taskId: string, code: string, languageVersion: string) =>
     executeJob<RunResult>(`/tasks/${taskId}/run`, { code, languageVersion }),
-  submit: (taskId: string, code: string, languageVersion: string) =>
-    executeJob<SubmitResult>(`/tasks/${taskId}/submit`, { code, languageVersion }),
+  submit: (taskId: string, code: string, languageVersion: string, acceptResubmitPenalty = false, expectedPenaltyPoints?: number) =>
+    executeJob<SubmitResult>(`/tasks/${taskId}/submit`, { code, languageVersion, acceptResubmitPenalty, expectedPenaltyPoints }),
   taskSubmissions: (taskId: string, scope: 'mine' | 'all' = 'mine') =>
     apiFetch<SubmissionSummary[]>(`/tasks/${taskId}/submissions?scope=${scope}`),
   insights: (taskId: string) => apiFetch<Insights>(`/tasks/${taskId}/insights`),
@@ -143,12 +147,20 @@ export const api = {
   },
   submission: (id: string) => apiFetch<Submission>(`/submissions/${id}`),
 
+  notifications: (cursor?: SubmissionCursor) => {
+    const search = new URLSearchParams({ limit: '50' })
+    if (cursor) { search.set('beforeCreated', cursor.beforeCreated); search.set('beforeId', cursor.beforeId) }
+    return apiFetch<NotificationPage>(`/notifications?${search}`)
+  },
+  readNotifications: (ids?: string[]) => apiFetch<void>('/notifications/read', jsonBody(ids ? { ids } : { all: true })),
+  createNotification: (kind: 'info' | 'success' | 'error', message: string) => apiFetch<UserNotification>('/notifications', jsonBody({ kind, message })),
+
   ratingTables: () => apiFetch<RatingTableDescriptor[]>('/rating/tables'),
-  rating: (table: string) => apiFetch<RatingTable>(`/rating?table=${encodeURIComponent(table)}`),
+  rating: (table: string, search = '') => apiFetch<RatingTable>(`/rating?table=${encodeURIComponent(table)}&q=${encodeURIComponent(search)}`),
 
   adminSummary: () => apiFetch<AdminSummary>('/admin/summary'),
   adminUsers: () => apiFetch<User[]>('/admin/users'),
-  updateUser: (id: string, patch: Partial<Pick<User, 'role' | 'adminNote' | 'banned' | 'nameLimit'>>) =>
+  updateUser: (id: string, patch: Partial<Pick<User, 'role' | 'adminNote' | 'banned' | 'nameLimit' | 'username' | 'rating' | 'solvedTaskIds'>> & { purgeState?: boolean }) =>
     apiFetch<User>(`/admin/users/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
   createNews: (item: Partial<NewsItem>) =>
     apiFetch<NewsItem>('/admin/news', jsonBody(item)),
@@ -168,6 +180,8 @@ export const api = {
   updateTask: (id: string, task: Partial<AdminTask>) => apiFetch<AdminTask>(`/admin/tasks/${id}`, { method: 'PATCH', body: JSON.stringify(task) }),
   deleteTask: (id: string) => apiFetch<void>(`/admin/tasks/${id}`, { method: 'DELETE' }),
   namespace: () => apiFetch<Namespace>('/namespace'),
+  editWorld: (name: string, change: { version: number; kind: 'variable' | 'last'; value: unknown } | { version: number; kind: 'function'; code: string }) => apiFetch<Namespace>(`/admin/world/${encodeURIComponent(name)}`, { method: 'PATCH', body: JSON.stringify(change) }),
+  deleteWorld: (name: string, version: number) => apiFetch<void>(`/admin/world/${encodeURIComponent(name)}?version=${version}`, { method: 'DELETE' }),
   adminSubmissions: (cursor?: SubmissionCursor) => {
     const search = new URLSearchParams({ limit: '100' })
     if (cursor) {

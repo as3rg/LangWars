@@ -1,3 +1,4 @@
+import { t, useLocale } from '@/lib/i18n'
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { CheckCircle2, Filter, Search, Target } from 'lucide-react'
@@ -21,6 +22,7 @@ const FILTERS: Array<{ id: 'all' | Difficulty; label: string }> = [
 ]
 
 export function TasksPage() {
+  useLocale()
   const tasks = useTasks()
   const [difficulty, setDifficulty] = useState<'all' | Difficulty>('all')
   const [search, setSearch] = useState('')
@@ -45,19 +47,16 @@ export function TasksPage() {
     <div>
       <div className="section-head">
         <div>
-          <div className="eyebrow">arena registry</div>
+          <div className="eyebrow">{t("arena registry")}</div>
           <h2 className="section-title">
-            <Target size={20} color="var(--cyan)" /> Tasks
-          </h2>
+            <Target size={20} color="var(--cyan)" /> {t("Tasks")}</h2>
           <div className="section-sub">
-            Solve a problem, publish your definitions, and defend your place in the shared world.
-          </div>
+            {t("Solve a problem, publish your definitions, and defend your place in the shared world.")}</div>
         </div>
         <div className="row wrap" style={{ gap: 8 }}>
           <Badge tone="cyan">
-            <CheckCircle2 size={11} /> {solved} solved
-          </Badge>
-          <Badge tone="violet">{tasks.data?.length ?? '…'} total</Badge>
+            <CheckCircle2 size={11} /> {solved} {t("solved")}</Badge>
+          <Badge tone="violet">{tasks.data?.length ?? '…'} {t("total")}</Badge>
         </div>
       </div>
 
@@ -69,7 +68,7 @@ export function TasksPage() {
             className={difficulty === filter.id ? 'filter-chip active' : 'filter-chip'}
             onClick={() => setDifficulty(filter.id)}
           >
-            {filter.label}
+            {t(filter.label)}
           </button>
         ))}
         <div className="search-input row" style={{ padding: '0 10px' }}>
@@ -77,8 +76,8 @@ export function TasksPage() {
           <input
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            placeholder="search title, slug, tag…"
-            aria-label="Search tasks"
+            placeholder={t("search title, slug, tag…")}
+            aria-label={t("Search tasks")}
             style={{
               background: 'transparent',
               border: 'none',
@@ -93,11 +92,11 @@ export function TasksPage() {
         </div>
       </div>
 
-      {tasks.isLoading && <Loading label="loading task registry…" />}
-      {tasks.error && <ErrorNotice message="Could not load tasks." />}
+      {tasks.isLoading && <Loading label={t("loading task registry…")} />}
+      {tasks.error && <ErrorNotice message={t("Could not load tasks.")} />}
 
       {tasks.data && filtered.length === 0 && (
-        <EmptyState title="No tasks match">Try a different filter. The cat is picky.</EmptyState>
+        <EmptyState title={t("No tasks match")}>{t("Try a different filter. The cat is picky.")}</EmptyState>
       )}
 
       <div className="task-grid">
@@ -121,18 +120,18 @@ export function TasksPage() {
 
             <div className="task-card-foot">
               <span className="row" style={{ gap: 8 }}>
-                <span className="task-score">{task.score} pts</span>
-                <span>{plural(task.solvedBy, 'solve')}</span>
+                <span className="task-score">{task.score} {t("pts")}</span>
+                <span>{plural(task.solvedBy, "solve")}</span>
                 {task.solved && (
                   <span className="solved-check">
-                    <CheckCircle2 size={12} /> solved
-                  </span>
+                    <CheckCircle2 size={12} /> {t("solved")}</span>
                 )}
-                {!task.solved && task.attempted && <span className="badge badge-amber">attempted</span>}
+                {!task.solved && task.broken && <span className="badge badge-magenta">{t('Broken')}</span>}
+                {!task.solved && !task.broken && task.attempted && <span className="badge badge-amber">{t("attempted")}</span>}
               </span>
               <span className="row" style={{ gap: 6 }}>
                 <span className="badge badge-violet">{task.languageVersion}</span>
-                <span className="badge">shared globals</span>
+                <span className="badge">{t("shared globals")}</span>
               </span>
             </div>
           </Link>

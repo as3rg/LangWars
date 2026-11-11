@@ -1,3 +1,4 @@
+import { t, useLocale } from '@/lib/i18n'
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import clsx from 'clsx'
@@ -5,6 +6,7 @@ import { ListFilter, Lock, ScrollText } from 'lucide-react'
 import { useAllSubmissions, useSession, useTasks } from '@/api/hooks'
 import type { SubmissionSummary } from '@/api/types'
 import { SubmissionModal } from '@/components/SubmissionModal'
+import { BreakImpactBadge } from '@/components/BreakImpact'
 import {
   Badge,
   EmptyState,
@@ -18,6 +20,7 @@ import { formatRelative } from '@/lib/time'
 import { toast } from '@/store/ui'
 
 export function SubmissionsPage() {
+  useLocale()
   const { user, isAdmin } = useSession()
   const [mineOnly, setMineOnly] = useState(false)
   const [taskFilter, setTaskFilter] = useState('all')
@@ -31,25 +34,22 @@ export function SubmissionsPage() {
     if (taskFilter === 'all') return list
     return list.filter((submission) => submission.taskId === taskFilter)
   }, [submissions.data, taskFilter])
+  const showImpact = rows.some((submission) => submission.breakImpact !== undefined)
 
   return (
     <div>
       <div className="section-head">
         <div>
-          <div className="eyebrow">audit trail</div>
+          <div className="eyebrow">{t("audit trail")}</div>
           <h2 className="section-title">
-            <ScrollText size={20} color="var(--cyan)" /> Submission log
-          </h2>
+            <ScrollText size={20} color="var(--cyan)" /> {t("Submission log")}</h2>
           <div className="section-sub">
-            Every attempt, newest first. Code and diff are visible only to their author (and admins) —
-            the log itself is public to signed-in cats.
-          </div>
+            {t("Every attempt, newest first. Code and diff are visible only to their author (and admins) — the log itself is public to signed-in cats.")}</div>
         </div>
         <div className="row wrap" style={{ gap: 8 }}>
-          <Badge tone="violet">{rows.length} shown</Badge>
+          <Badge tone="violet">{rows.length} {t("shown")}</Badge>
           <Badge tone="amber">
-            <Lock size={10} /> code private
-          </Badge>
+            <Lock size={10} /> {t("code private")}</Badge>
         </div>
       </div>
 
@@ -59,18 +59,17 @@ export function SubmissionsPage() {
           className={mineOnly ? 'filter-chip active' : 'filter-chip'}
           onClick={() => setMineOnly((value) => !value)}
           disabled={!user}
-          title={!user ? 'Sign in to filter your submissions' : undefined}
+          title={!user ? t("Sign in to filter your submissions") : undefined}
         >
-          mine only
-        </button>
+          {t("mine only")}</button>
         <select
           className="select"
-          aria-label="Filter by task"
+          aria-label={t("Filter by task")}
           style={{ width: 260, padding: '7px 10px' }}
           value={taskFilter}
           onChange={(event) => setTaskFilter(event.target.value)}
         >
-          <option value="all">All tasks</option>
+          <option value="all">{t("All tasks")}</option>
           {tasks.data?.map((task) => (
             <option value={task.id} key={task.id}>
               {task.title}
@@ -81,32 +80,32 @@ export function SubmissionsPage() {
 
       {!user && (
         <Panel className="panel-pad">
-          <EmptyState title="Sign in to view the log" icon={<Lock size={22} />}>
-            <Link to="/auth">Sign in</Link> to view the submission log.
-          </EmptyState>
+          <EmptyState title={t("Sign in to view the log")} icon={<Lock size={22} />}>
+            <Link to="/auth">{t("Sign in")}</Link> {t("to view the submission log.")}</EmptyState>
         </Panel>
       )}
 
-      {user && submissions.isLoading && <Loading label="reading the log…" />}
-      {user && submissions.error && <ErrorNotice message="Could not load submissions." />}
+      {user && submissions.isLoading && <Loading label={t("reading the log…")} />}
+      {user && submissions.error && <ErrorNotice message={t("Could not load submissions.")} />}
 
       {user && submissions.data && (
         <Panel className="panel-pad">
           {rows.length === 0 ? (
-            <EmptyState title="No submissions found">Try clearing the filters, or go solve a task.</EmptyState>
+            <EmptyState title={t("No submissions found")}>{t("Try clearing the filters, or go solve a task.")}</EmptyState>
           ) : (
             <div className="table-wrap" style={{ border: 'none' }}>
               <table className="data-table">
                 <thead>
                   <tr>
-                    <th>When</th>
-                    <th>Cat</th>
-                    <th>Task</th>
-                    <th>Status</th>
-                    <th style={{ textAlign: 'right' }}>Score</th>
-                    <th>Tests</th>
-                    <th>Time</th>
-                    <th>Lang</th>
+                    <th>{t("When")}</th>
+                    <th>{t("Cat")}</th>
+                    <th>{t("Task")}</th>
+                    <th>{t("Status")}</th>
+                    {showImpact && <th>{t('Broke')}</th>}
+                    <th style={{ textAlign: 'right' }}>{t("Score")}</th>
+                    <th>{t("Tests")}</th>
+                    <th>{t("Time")}</th>
+                    <th>{t("Lang")}</th>
                     <th />
                   </tr>
                 </thead>
@@ -125,26 +124,27 @@ export function SubmissionsPage() {
                         <td>
                           <span className="row" style={{ gap: 6 }}>
                             {submission.username}
-                            {submission.userId === user.id && <span className="badge badge-cyan">you</span>}
+                            {submission.userId === user.id && <span className="badge badge-cyan">{t("you")}</span>}
                           </span>
                         </td>
                         <td>
                           <Link to={`/tasks/${submission.taskId}`} onClick={(event) => event.stopPropagation()}>
-                            {submission.taskTitle}
+                            {tasks.data?.find((task) => task.id === submission.taskId)?.title ?? submission.taskTitle}
                           </Link>
                         </td>
                         <td>
                           <StatusPill status={submission.status} />
                         </td>
+                        {showImpact && <td><BreakImpactBadge impact={submission.breakImpact} /></td>}
                         <td className="score-cell" style={{ textAlign: 'right' }}>
                           {submission.score}
                         </td>
                         <td className="mono-cell">
                           {submission.testsPassed}/{submission.testsTotal}
                         </td>
-                        <td className="mono-cell">{submission.durationMs} ms</td>
+                        <td className="mono-cell">{submission.durationMs} {t("ms")}</td>
                         <td className="mono-cell">{submission.languageVersion}</td>
-                        <td className="mono-cell dim">{canOpen ? <button className="filter-chip" onClick={(event) => { event.stopPropagation(); setOpen(submission.id) }}>Open</button> : 'private'}</td>
+                        <td className="mono-cell dim">{canOpen ? <button className="filter-chip" onClick={(event) => { event.stopPropagation(); setOpen(submission.id) }}>{t("Open")}</button> : t("private")}</td>
                       </tr>
                     )
                   })}
@@ -157,11 +157,9 @@ export function SubmissionsPage() {
 
           <div className="row-between wrap mt-16">
             <span className="rating-note" style={{ marginTop: 0 }}>
-              Rows are clickable only for your own submissions (admins can open all).
-            </span>
+              {t("Rows are clickable only for your own submissions (admins can open all).")}</span>
             <LinkButton to="/tasks" size="sm">
-              Solve something
-            </LinkButton>
+              {t("Solve something")}</LinkButton>
           </div>
         </Panel>
       )}

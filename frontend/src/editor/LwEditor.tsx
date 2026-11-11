@@ -1,3 +1,4 @@
+import { t, useLocale } from '@/lib/i18n'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { EditorState } from '@codemirror/state'
 import {
@@ -60,6 +61,7 @@ export function LwEditor({
   running = false,
   submitting = false,
 }: LwEditorProps) {
+  useLocale()
   const hostRef = useRef<HTMLDivElement>(null)
   const viewRef = useRef<EditorView | null>(null)
   const onChangeRef = useRef(onChange)
@@ -179,9 +181,8 @@ export function LwEditor({
         </span>
         <span className="badge badge-cyan">{version}</span>
         <span className="spacer" />
-        <GlowButton size="sm" onClick={format} icon={<Wand2 size={13} />} title="Format indentation">
-          Format
-        </GlowButton>
+        <GlowButton size="sm" onClick={format} icon={<Wand2 size={13} />} title={t("Format indentation")}>
+          {t("Format")}</GlowButton>
         {onRun && (
           <GlowButton
             size="sm"
@@ -190,8 +191,7 @@ export function LwEditor({
             icon={<Play size={13} />}
             disabled={submitting}
           >
-            Run
-          </GlowButton>
+            {t("Run")}</GlowButton>
         )}
         {onSubmit && (
           <GlowButton
@@ -201,10 +201,9 @@ export function LwEditor({
             loading={submitting}
             icon={<Send size={13} />}
             disabled={running}
-            title="Submit solution"
+            title={t("Submit solution")}
           >
-            Submit
-          </GlowButton>
+            {t("Submit")}</GlowButton>
         )}
       </div>
 
@@ -212,33 +211,30 @@ export function LwEditor({
 
       <div className="editor-statusbar">
         <span className={counts.error > 0 ? 'bad' : 'ok'}>
-          <Bug size={11} style={{ verticalAlign: '-1px' }} /> {counts.error} errors
-        </span>
-        <span className="warn">{counts.warning} warnings</span>
-        <span>{counts.info} hints</span>
+          <Bug size={11} style={{ verticalAlign: '-1px' }} /> {counts.error} {t("errors")}</span>
+        <span className="warn">{counts.warning} {t("warnings")}</span>
+        <span>{counts.info} {t("hints")}</span>
         <span className="spacer" />
-        <span>LWLang {version}</span>
-        <span>UTF-8</span>
-        <span>shared state</span>
+        <span>{t("LWLang ")}{version}</span>
+        <span>{t("UTF-8")}</span>
+        <span>{t("shared state")}</span>
       </div>
 
       <div className="problems-panel">
         <div className="problems-head">
           <span className="row" style={{ gap: 7 }}>
             {counts.error === 0 ? <Check size={13} color="var(--cyan)" /> : <Bug size={13} color="var(--magenta)" />}
-            Problems
-          </span>
+            {t("Problems")}</span>
           <span>
-            {counts.error} err · {counts.warning} warn · {counts.info} info
-          </span>
+            {counts.error} {t("err · ")}{counts.warning} {t("warn · ")}{counts.info} {t("info")}</span>
           <button onClick={() => setShowProblems((value) => !value)}>
             {showProblems ? (
               <span className="row" style={{ gap: 4 }}>
-                hide <ChevronUp size={12} />
+                {t("hide ")}<ChevronUp size={12} />
               </span>
             ) : (
               <span className="row" style={{ gap: 4 }}>
-                show <ChevronDown size={12} />
+                {t("show ")}<ChevronDown size={12} />
               </span>
             )}
           </button>

@@ -167,20 +167,26 @@ class PlatformTests(unittest.TestCase):
         self.assertEqual(self.client.get("/api/namespace").json()["version"], 0)
 
     def create_task(self, slug, expected):
-        response = self.client.post("/api/admin/tasks", json={"slug": slug, "title": slug, "tests": [{"input": [], "expected": expected}]}, headers=self.admin)
+        response = self.client.post("/api/admin/tasks", json={"slug": slug, "title": slug, "statement": "Return the expected value.", "tests": [{"input": [], "expected": expected}]}, headers=self.admin)
         self.assertEqual(response.status_code, 201, response.text)
         return response.json()["id"]
 
     def submit_and_work(self, task_id, code, headers):
         response = self.client.post(f"/api/tasks/{task_id}/submit", json={"code": code}, headers=headers)
         self.assertEqual(response.status_code, 202, response.text)
-        process_job(self.store, self.store.claim())
+        for _ in range(200):
+            progress = self.client.get("/api/jobs/" + response.json()["jobId"], headers=headers).json()
+            if progress["status"] not in ("queued", "running"):
+                break
+            claimed = self.store.claim()
+            self.assertIsNotNone(claimed)
+            process_job(self.store, claimed)
         result = self.client.get("/api/jobs/" + response.json()["jobId"], headers=headers).json()
         self.assertEqual(result["status"], "completed", result)
         return result["result"]["submission"]
 
     def drain(self):
-        for _ in range(20):
+        for _ in range(2000):
             job = self.store.claim()
             if not job:
                 return
@@ -200,7 +206,8 @@ class PlatformTests(unittest.TestCase):
         self.assertEqual(second["status"], "OK")
         self.drain()
         broken = self.client.get("/api/submissions/" + first["id"], headers=first_headers).json()
-        self.assertEqual(broken["status"], "WRONG_ANSWER", broken)
+        self.assertEqual(broken["status"], "BROKEN", broken)
+        self.assertEqual(broken["verdictStatus"], "WRONG_ANSWER", broken)
         self.assertEqual(self.client.get("/api/me", headers=first_headers).json()["rating"], 0)
         self.submit_and_work(repair_task, "@solution fn helper_answer(){ let answer=10; return answer; }", second_headers)
         self.drain()
@@ -311,6 +318,234 @@ class PlatformTests(unittest.TestCase):
             self.assertEqual(observed, identifiers + ["sub_old"], route)
         for params in [{"beforeCreated": same_time}, {"beforeId": "sub_a"}, {"beforeCreated": "invalid", "beforeId": "sub_a"}, {"beforeCreated": "2026-99-99T00:00:00Z", "beforeId": "sub_a"}, {"beforeCreated": same_time, "beforeId": "x" * 100}]:
             self.assertEqual(self.client.get("/api/admin/submissions", params=params, headers=self.admin).status_code, 422)
+
+
+    def test_login_denylist_and_admin_rename_enforce_case_insensitive_uniqueness(self):
+        self.settings(denyWords=["blocked"])
+        denied = self.client.post("/api/auth/register", json={"username": "MyBLOCKEDname", "password": "player-password-for-tests"})
+        self.assertEqual(denied.status_code, 422, denied.text)
+        self.assertEqual(denied.json()["error"]["code"], "DENIED_WORD")
+        user, headers = self.register()
+        self.register("another")
+        route = "/api/admin/users/" + user["id"]
+        self.assertEqual(self.client.patch(route, json={"username": "BLOCKED"}, headers=self.admin).status_code, 422)
+        self.assertEqual(self.client.patch(route, json={"username": "ANOTHER"}, headers=self.admin).status_code, 409)
+        changed = self.client.patch(route, json={"username": "renamed"}, headers=self.admin)
+        self.assertEqual(changed.status_code, 200, changed.text)
+        self.assertEqual(self.client.get("/api/me", headers=headers).json()["username"], "renamed")
+        self.assertEqual(self.client.post("/api/auth/login", json={"username": "player", "password": "player-password-for-tests"}).status_code, 401)
+        self.assertEqual(self.client.post("/api/auth/login", json={"username": "RENAMED", "password": "player-password-for-tests"}).status_code, 200)
+
+    def test_resubmit_charge_requires_current_amount_and_is_once_per_enqueued_submit(self):
+        from server.worker import refresh_ratings, schedule_rechecks
+        self.settings(submitCooldownSeconds=0, runCooldownSeconds=0)
+        user, headers = self.register()
+        code = TASK_SOLUTIONS["shared-sum"]
+        self.assertEqual(self.submit_and_work("shared-sum", code, headers)["status"], "OK")
+        self.assertEqual(self.submit_and_work("shared-sum", code, headers)["penaltyPoints"], 0)
+        self.drain()
+        self.settings(resubmitPenaltyEnabled=True, resubmitPenaltyPercent=8)
+        task = self.client.get("/api/tasks/shared-sum", headers=headers).json()
+        self.assertEqual(task["resubmitPenalty"], {"enabled": True, "percent": 8, "points": 4})
+        for extra in ({}, {"acceptResubmitPenalty": True}, {"acceptResubmitPenalty": True, "expectedPenaltyPoints": 3}, {"acceptResubmitPenalty": True, "expectedPenaltyPoints": True}):
+            refused = self.client.post("/api/tasks/shared-sum/submit", json={"code": code, **extra}, headers=headers)
+            self.assertEqual(refused.status_code, 409, refused.text)
+            self.assertEqual(refused.json()["error"]["points"], 4)
+        self.assertEqual(self.client.get("/api/me", headers=headers).json()["rating"], 50)
+        run = self.client.post("/api/tasks/shared-sum/run", json={"code": code}, headers=headers)
+        self.assertEqual(run.status_code, 202, run.text)
+        self.drain()
+        self.assertEqual(self.client.get("/api/me", headers=headers).json()["rating"], 50)
+        queued = self.client.post("/api/tasks/shared-sum/submit", json={"code": code, "acceptResubmitPenalty": True, "expectedPenaltyPoints": 4}, headers=headers)
+        self.assertEqual(queued.status_code, 202, queued.text)
+        self.assertEqual(queued.json()["penaltyPoints"], 4)
+        self.assertEqual(self.client.get("/api/me", headers=headers).json()["rating"], 46)
+        job = self.store.claim()
+        process_job(self.store, job)
+        process_job(self.store, job)  # A duplicated lease cannot charge or publish twice.
+        self.drain()
+        outcome = self.client.get("/api/jobs/" + queued.json()["jobId"], headers=headers).json()["result"]
+        self.assertEqual(outcome["submission"]["penaltyPoints"], 4)
+        self.assertEqual(outcome["ratingUpdate"]["delta"], -4)
+        with self.store.transaction() as tx:
+            refresh_ratings(tx)
+            schedule_rechecks(tx, {}, tx.world(), all_submissions=True)
+        self.drain()
+        self.assertEqual(self.client.get("/api/me", headers=headers).json()["rating"], 46)
+        self.settings(resubmitPenaltyEnabled=False)
+        self.assertEqual(self.submit_and_work("shared-sum", code, headers)["penaltyPoints"], 0)
+        self.assertEqual(self.client.get("/api/me", headers=headers).json()["rating"], 46)
+        with self.store.transaction() as tx:
+            self.assertEqual(tx.get("users", user["id"])["submissionPenalties"], 4)
+        self.settings(resubmitPenaltyEnabled=True)
+        self.drain()
+        failed = self.client.post("/api/tasks/shared-sum/submit", json={"code": "@solution fn solve(){return 0;}", "acceptResubmitPenalty": True, "expectedPenaltyPoints": 4}, headers=headers)
+        self.assertEqual(failed.status_code, 202, failed.text)
+        self.drain()
+        self.assertEqual(self.client.get("/api/me", headers=headers).json()["rating"], 42)
+        self.assertTrue(self.client.get("/api/tasks/shared-sum", headers=headers).json()["solved"])
+
+    def test_admin_score_and_solved_corrections_survive_refresh_without_blocking_future_solves(self):
+        from server.worker import refresh_ratings
+        self.settings(submitCooldownSeconds=0)
+        user, headers = self.register()
+        route = "/api/admin/users/" + user["id"]
+        patched = self.client.patch(route, json={"rating": 123, "solvedTaskIds": ["shared-sum"]}, headers=self.admin)
+        self.assertEqual(patched.status_code, 200, patched.text)
+        self.assertEqual(patched.json()["solvedTaskIds"], ["shared-sum"])
+        with self.store.transaction() as tx:
+            refresh_ratings(tx)
+        self.assertTrue(self.client.get("/api/tasks/shared-sum", headers=headers).json()["solved"])
+        self.assertEqual(self.client.get("/api/me", headers=headers).json()["rating"], 123)
+        self.assertEqual(self.submit_and_work("cyclic-access", TASK_SOLUTIONS["cyclic-access"], headers)["status"], "OK")
+        current = self.client.get("/api/me", headers=headers).json()
+        self.assertEqual((current["rating"], current["solvedCount"]), (193, 2))
+        removed = self.client.patch(route, json={"solvedTaskIds": []}, headers=self.admin)
+        self.assertEqual(removed.status_code, 200, removed.text)
+        self.assertFalse(self.client.get("/api/tasks/cyclic-access", headers=headers).json()["solved"])
+        with self.store.transaction() as tx:
+            refresh_ratings(tx)
+        self.assertFalse(self.client.get("/api/tasks/cyclic-access", headers=headers).json()["solved"])
+        self.drain()
+        self.assertEqual(self.submit_and_work("cyclic-access", TASK_SOLUTIONS["cyclic-access"], headers)["status"], "OK")
+        self.assertTrue(self.client.get("/api/tasks/cyclic-access", headers=headers).json()["solved"])
+        self.assertEqual(self.client.patch(route, json={"solvedTaskIds": ["does-not-exist"]}, headers=self.admin).status_code, 422)
+
+    def test_rating_lists_task_tables_and_search_preserves_actual_rank(self):
+        first, _ = self.register("first")
+        second, _ = self.register("second")
+        self.client.patch("/api/admin/users/" + first["id"], json={"rating": 300}, headers=self.admin)
+        self.client.patch("/api/admin/users/" + second["id"], json={"rating": 100, "solvedTaskIds": ["shared-sum"]}, headers=self.admin)
+        tables = self.client.get("/api/rating/tables").json()
+        self.assertIn("task:shared-sum", {table["id"] for table in tables})
+        self.assertIn("task:cyclic-access", {table["id"] for table in tables})
+        found = self.client.get("/api/rating", params={"q": "SeCoNd"}).json()["rows"]
+        self.assertEqual([(row["username"], row["rank"] ) for row in found], [("second", 2)])
+        task = self.client.get("/api/rating", params={"table": "task:shared-sum", "q": "second"}).json()["rows"][0]
+        self.assertEqual((task["score"], task["solved"]), (50, 1))
+
+    def test_ban_purge_is_optional_and_preserves_other_players_current_writes(self):
+        self.settings(submitCooldownSeconds=0)
+        first, first_headers = self.register("first")
+        _, second_headers = self.register("second")
+        task = self.create_task("core", 1)
+        source = '@eq fn <int,int> custom_equal(left,right){return __builtin_eq__(left,right); }fn helper(){return 1;}@solution fn core_answer(){let answer=1;return helper();}'
+        self.assertEqual(self.submit_and_work(task, source, first_headers)["status"], "OK")
+        other = self.create_task("other", 2)
+        self.assertEqual(self.submit_and_work(other, '@solution fn second_answer(){let answer=2;return answer;}', second_headers)["status"], "OK")
+        self.drain()
+        before = self.client.get("/api/namespace", headers=self.admin).json()
+        route = "/api/admin/users/" + first["id"]
+        self.assertEqual(self.client.patch(route, json={"banned": True}, headers=self.admin).status_code, 200)
+        self.assertEqual(self.client.get("/api/namespace", headers=self.admin).json(), before)
+        self.assertEqual(self.client.patch(route, json={"purgeState": True}, headers=self.admin).status_code, 422)
+        purged = self.client.patch(route, json={"banned": True, "purgeState": True}, headers=self.admin)
+        self.assertEqual(purged.status_code, 200, purged.text)
+        after = self.client.get("/api/namespace", headers=self.admin).json()
+        self.assertNotIn("helper", after["functions"])
+        self.assertNotIn("custom_equal", after["functions"])
+        self.assertNotIn("core_answer", after["functions"])
+        self.assertIn("second_answer", after["functions"])
+        self.assertEqual(after["values"]["answer"], 2)
+        self.assertEqual(self.client.get("/api/me", headers=first_headers).status_code, 401)
+
+    def test_admin_world_edits_are_versioned_bounded_and_contract_checked(self):
+        _, headers = self.register()
+        version = self.client.get("/api/namespace", headers=self.admin).json()["version"]
+        body = {"version": version, "kind": "variable", "value": {"$dict": [["a", [1, 2]]]}}
+        route = "/api/admin/world/answer"
+        self.assertEqual(self.client.patch(route, json=body, headers=headers).status_code, 403)
+        edited = self.client.patch(route, json=body, headers=self.admin)
+        self.assertEqual(edited.status_code, 200, edited.text)
+        self.assertEqual(self.client.patch(route, json=body, headers=self.admin).status_code, 409)
+        version = edited.json()["version"]
+        for value in (True, None, 1000001, {"x": 2}, {"$dict": [[1]]}):
+            self.assertEqual(self.client.patch(route, json={"version": version, "kind": "variable", "value": value}, headers=self.admin).status_code, 422)
+        invalid = self.client.patch(route, json={"version": version, "kind": "function", "code": "fn answer(){return __builtin_eq__(1,1);}"}, headers=self.admin)
+        self.assertEqual(invalid.status_code, 422, invalid.text)
+        function = self.client.patch(route, json={"version": version, "kind": "function", "code": "fn answer(){return 42;}"}, headers=self.admin)
+        self.assertEqual(function.status_code, 200, function.text)
+        version = function.json()["version"]
+        last = self.client.patch(route, json={"version": version, "kind": "last", "value": 17}, headers=self.admin)
+        self.assertEqual(last.status_code, 200, last.text)
+        state = self.client.get("/api/namespace", headers=self.admin).json()
+        self.assertEqual(state["last"]["answer"], 17)
+        self.assertIn("return 42", state["functions"]["answer"]["source"])
+        deleted = self.client.delete(route, params={"version": state["version"]}, headers=self.admin)
+        self.assertEqual(deleted.status_code, 200, deleted.text)
+        self.assertNotIn("answer", self.client.get("/api/namespace", headers=self.admin).json()["functions"])
+
+    def test_world_edit_rechecks_version_after_sandbox_without_holding_world_lock(self):
+        version = self.client.get("/api/namespace", headers=self.admin).json()["version"]
+        def change_during_validation(payload, timeout=None):
+            result = sandbox(payload, timeout)
+            with self.store.transaction() as tx:
+                world = tx.world()
+                world["version"] += 1
+                tx.save_world(world)
+            return result
+        with patch("server.worker.sandbox", side_effect=change_during_validation):
+            response = self.client.patch("/api/admin/world/answer", json={"version": version, "kind": "variable", "value": 5}, headers=self.admin)
+        self.assertEqual(response.status_code, 409, response.text)
+        self.assertEqual(self.client.get("/api/namespace", headers=self.admin).json()["values"], {})
+
+    def test_task_translations_allow_one_language_and_validate_complete_entries(self):
+        body = {"slug": "russian-task", "translations": {"ru": {"title": "Задача", "statement": "Верните ноль.", "constraints": ["Только целые числа."]}}, "tests": [{"input": [], "expected": 0}]}
+        response = self.client.post("/api/admin/tasks", json=body, headers=self.admin)
+        self.assertEqual(response.status_code, 201, response.text)
+        task = response.json()
+        self.assertEqual(task["title"], "Задача")
+        self.assertEqual(task["translations"]["ru"]["examples"], [{"input": "[]", "output": "0"}])
+        for translations in ({}, {"ru": {"title": "Название", "statement": " "}}, {"es": {"title": "Hola", "statement": "Texto"}}, {"en": {"title": "", "statement": "Text"}}):
+            rejected = self.client.patch("/api/admin/tasks/" + task["id"], json={"translations": translations}, headers=self.admin)
+            self.assertEqual(rejected.status_code, 422, rejected.text)
+        bilingual = {"en": {"title": "Task", "statement": "Return zero."}, "ru": body["translations"]["ru"]}
+        response = self.client.patch("/api/admin/tasks/" + task["id"], json={"translations": bilingual}, headers=self.admin)
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["title"], "Task")
+        public = self.client.get("/api/tasks/" + task["id"]).json()
+        self.assertNotIn("tests", public)
+        self.assertEqual(set(public["translations"]), {"en", "ru"})
+        for change in ({"title": ""}, {"statement": ""}, {"title": "x" * 257}):
+            self.assertEqual(self.client.patch("/api/admin/tasks/" + task["id"], json=change, headers=self.admin).status_code, 422)
+        self.assertEqual(self.client.post("/api/admin/tasks", json={"slug": "empty-task", "title": "Empty", "tests": [{"input": [], "expected": 0}]}, headers=self.admin).status_code, 422)
+
+    def test_ban_purge_retains_attribution_after_task_history_is_deleted(self):
+        user, headers = self.register()
+        task = self.create_task("temporary", 1)
+        self.assertEqual(self.submit_and_work(task, '@solution fn temporary_answer(){let answer=1;return answer;}', headers)["status"], "OK")
+        # Simulate a pre-upgrade world without durable owner IDs.
+        with self.store.transaction() as tx:
+            world = tx.world()
+            world.pop("ownerUsers", None)
+            tx.save_world(world)
+        removed = self.client.delete("/api/admin/tasks/" + task, headers=self.admin)
+        self.assertEqual(removed.status_code, 204, removed.text)
+        self.assertIn("temporary_answer", self.client.get("/api/namespace", headers=self.admin).json()["functions"])
+        banned = self.client.patch("/api/admin/users/" + user["id"], json={"banned": True, "purgeState": True}, headers=self.admin)
+        self.assertEqual(banned.status_code, 200, banned.text)
+        state = self.client.get("/api/namespace", headers=self.admin).json()
+        self.assertEqual(state["functions"], {})
+        self.assertEqual(state["values"], {})
+
+    def test_submission_uses_latest_login_after_rename_during_execution(self):
+        user, headers = self.register()
+        task = self.create_task("rename", 1)
+        queued = self.client.post("/api/tasks/" + task + "/submit", json={"code": "@solution fn answer(){return 1;}"}, headers=headers)
+        renamed = False
+        def rename_during_execution(payload, timeout=None):
+            nonlocal renamed
+            result = sandbox(payload, timeout)
+            if "code" in payload and not renamed:
+                renamed = True
+                changed = self.client.patch("/api/admin/users/" + user["id"], json={"username": "renamed"}, headers=self.admin)
+                self.assertEqual(changed.status_code, 200, changed.text)
+            return result
+        with patch("server.worker.sandbox", side_effect=rename_during_execution):
+            process_job(self.store, self.store.claim())
+        submission = self.client.get("/api/jobs/" + queued.json()["jobId"], headers=headers).json()["result"]["submission"]
+        self.assertTrue(renamed)
+        self.assertEqual(submission["username"], "renamed")
 
 
 if __name__ == "__main__":

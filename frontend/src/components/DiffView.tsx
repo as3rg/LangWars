@@ -1,8 +1,10 @@
+import { t, useLocale } from '@/lib/i18n'
 import type { DiffHunk } from '@/api/types'
 
 export function DiffView({ hunks }: { hunks: DiffHunk[] }) {
+  useLocale()
   if (hunks.length === 0) {
-    return <div className="diff-empty">No diff data available.</div>
+    return <div className="diff-empty">{t("No diff data available.")}</div>
   }
 
   return (
@@ -13,7 +15,7 @@ export function DiffView({ hunks }: { hunks: DiffHunk[] }) {
             <span>{hunk.oldLine ?? ''}</span>
             <span>{hunk.newLine ?? ''}</span>
           </span>
-          <span className="prefix">{hunk.type === 'add' ? '+' : hunk.type === 'del' ? '-' : ' '}</span>
+          <span className="prefix">{hunk.type === "add" ? '+' : hunk.type === "del" ? '-' : ' '}</span>
           <span>{hunk.text || ' '}</span>
         </div>
       ))}

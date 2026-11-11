@@ -3,6 +3,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, ApiError } from './client'
 import type { NewsItem } from './types'
 import { useAuthStore } from '@/store/auth'
+import { localizeTask, useLocale } from '@/lib/i18n'
+import { notificationToast } from '@/store/ui'
 
 export const qk = {
   me: ['me'] as const,
@@ -55,14 +57,18 @@ export function useNews() {
 }
 
 export function useTasks() {
-  return useQuery({ queryKey: qk.tasks, queryFn: api.tasks, refetchInterval: 15_000 })
+  const { locale } = useLocale()
+  return useQuery({ queryKey: qk.tasks, queryFn: api.tasks, refetchInterval: 15_000, select: (tasks) => tasks.map((task) => localizeTask(task, locale)) })
 }
 
 export function useTask(id: string | undefined) {
+  const { locale } = useLocale()
   return useQuery({
     queryKey: qk.task(id ?? ''),
     queryFn: () => api.task(id!),
     enabled: Boolean(id),
+    refetchInterval: 15_000,
+    select: (task) => localizeTask(task, locale),
   })
 }
 
@@ -108,10 +114,10 @@ export function useRatingTables() {
   return useQuery({ queryKey: qk.ratingTables, queryFn: api.ratingTables })
 }
 
-export function useRating(table: string) {
+export function useRating(table: string, search = '') {
   return useQuery({
-    queryKey: qk.rating(table),
-    queryFn: () => api.rating(table),
+    queryKey: [...qk.rating(table), search],
+    queryFn: () => api.rating(table, search),
     enabled: Boolean(table),
     refetchInterval: 15_000,
   })
@@ -192,10 +198,12 @@ export function useSubmit(taskId: string) {
   const queryClient = useQueryClient()
   const patchUser = useAuthStore((state) => state.patchUser)
   return useMutation({
-    mutationFn: ({ code, version }: { code: string; version: string }) =>
-      api.submit(taskId, code, version),
+    mutationFn: ({ code, version, acceptResubmitPenalty, expectedPenaltyPoints }: { code: string; version: string; acceptResubmitPenalty?: boolean; expectedPenaltyPoints?: number }) =>
+      api.submit(taskId, code, version, acceptResubmitPenalty, expectedPenaltyPoints),
     onSuccess: (data) => {
       patchUser({ rating: data.ratingUpdate.newScore })
+      if (data.notification) notificationToast(data.notification)
+      queryClient.invalidateQueries({ queryKey: ['notifications'] })
       queryClient.invalidateQueries({ queryKey: qk.tasks })
       queryClient.invalidateQueries({ queryKey: qk.task(taskId) })
       queryClient.invalidateQueries({ queryKey: ['taskSubmissions', taskId] })

@@ -14,7 +14,9 @@ from fastapi.responses import JSONResponse, Response
 
 from .auth import issue_session, password_hash, password_matches, prohibited, public_user, revoke_sessions, token_hash
 from .seed import OPERATIONS
+from .scoring import refresh_ratings, resubmit_penalty, solved_tasks, solved_task_map
 from .store import Store, dumps, iso, uid
+from .notifications import event as notification_event, project as project_notification, project_submission
 
 
 def fail(status, code, message, headers=None):
@@ -58,14 +60,21 @@ def public_task(task, tx=None, user=None, admin=False):
     if not admin:
         result.pop("tests", None)
     if tx:
-        result["solvedBy"] = tx.execute("SELECT COUNT(DISTINCT user_id) FROM records WHERE kind='submissions' AND task_id=? AND state='OK'", (task["id"],)).fetchone()[0]
-        result["solved"] = bool(user and tx.execute("SELECT 1 FROM records WHERE kind='submissions' AND task_id=? AND user_id=? AND state='OK' LIMIT 1", (task["id"], user["id"])).fetchone())
+        if not hasattr(tx, "public_solves"):
+            tx.public_solves = solved_task_map(tx, [player for player in tx.list("users") if not player.get("banned")])
+        result["solvedBy"] = sum(task["id"] in solved for solved in tx.public_solves.values())
+        result["solved"] = bool(user and task["id"] in tx.public_solves.get(user["id"], set()))
+        broken = bool(user and tx.execute("SELECT 1 FROM records WHERE kind='submissions' AND task_id=? AND user_id=? AND accepted=1 AND state<>'OK' LIMIT 1", (task["id"], user["id"])).fetchone())
         result["attempted"] = bool(user and tx.execute("SELECT 1 FROM records WHERE kind='submissions' AND task_id=? AND user_id=? LIMIT 1", (task["id"], user["id"])).fetchone())
+        result["broken"] = broken and not result["solved"]
+        result["status"] = "solved" if result["solved"] else "broken" if broken else "attempted" if result["attempted"] else "new"
+        result["resubmitPenalty"] = resubmit_penalty(tx, user, task, tx.get("system", "world")["settings"], solved=result["solved"])
     return result
 
 
-def summary(sub):
-    return {key: val for key, val in sub.items() if key not in {"code", "tests", "diagnostics", "stdout", "dependencies", "names", "changes", "lease"}}
+def summary(sub, tx, viewer=None):
+    value = {key: val for key, val in sub.items() if key not in {"code", "tests", "diagnostics", "stdout", "dependencies", "names", "changes", "lease"}}
+    return project_submission(tx, value, tx.get("system", "world")["settings"], viewer=viewer)
 
 
 def create_app(database_url=None):
@@ -180,7 +189,59 @@ def create_app(database_url=None):
     def config():
         with store.transaction() as tx:
             settings = tx.get("system", "world")["settings"]
-            return {key: settings[key] for key in ["registrationMode", "runCooldownSeconds", "submitCooldownSeconds", "allowedWords", "maxNameLength"]}
+            return {key: settings[key] for key in ["registrationMode", "runCooldownSeconds", "submitCooldownSeconds", "allowedWords", "maxNameLength", "resubmitPenaltyEnabled", "resubmitPenaltyPercent", "solutionNotificationsEnabled", "showBreakerIdentity", "breakImpactVisibility"]}
+
+    @app.get("/api/notifications")
+    def notifications(request: Request, limit: int = 50, beforeCreated: str | None = None, beforeId: str | None = None):
+        limit = integer(limit, "limit", 1, 100)
+        if (beforeCreated is None) != (beforeId is None):
+            fail(422, "BAD_CURSOR", "Supply both cursor fields")
+        if beforeCreated is not None:
+            text(beforeCreated, "beforeCreated", 20, 40)
+            text(beforeId, "beforeId", 1, 80)
+            if not re.fullmatch(r"[0-9T:.+Z-]+", beforeCreated) or not re.fullmatch(r"ntf_[a-f0-9]+", beforeId):
+                fail(422, "BAD_CURSOR", "Invalid notification cursor")
+        with store.transaction() as tx:
+            user = current(request, tx)
+            settings = tx.get("system", "world")["settings"]
+            all_items = tx.list("notifications", user_id=user["id"])
+            visible = [clean for item in all_items if (clean := project_notification(tx, item, settings)) is not None]
+            items = [item for item in visible if beforeCreated is None or item["createdAt"] < beforeCreated or item["createdAt"] == beforeCreated and item["id"] > beforeId]
+            return {"items": items[:limit], "unreadCount": sum(not item.get("read", False) for item in visible),
+                    "enabled": settings.get("solutionNotificationsEnabled", True), "showBreakerIdentity": settings.get("showBreakerIdentity", False), "breakImpactVisibility": settings.get("breakImpactVisibility", "count")}
+
+    @app.post("/api/notifications", status_code=201)
+    def create_notification(request: Request, body: dict = Body(...)):
+        if set(body) != {"kind", "message"} or body.get("kind") not in ("info", "success", "error"):
+            fail(422, "BAD_BODY", "Only informational client notifications can be created")
+        message = text(body.get("message"), "message", 1, 2000)
+        with store.transaction() as tx:
+            tx.world()
+            user = current(request, tx)
+            key = "notifications:" + user["id"]
+            now = time.time()
+            entries = [entry for entry in (tx.get("throttle", key) or []) if entry > now - 60]
+            if len(entries) >= 120:
+                fail(429, "RATE_LIMIT", "Too many notifications", {"Retry-After": "60"})
+            tx.put("throttle", key, entries + [now])
+            return project_notification(tx, notification_event(tx, user["id"], body["kind"], uid("client_"), message=message), tx.get("system", "world")["settings"])
+
+    @app.post("/api/notifications/read", status_code=204)
+    def read_notifications(request: Request, body: dict = Body(...)):
+        if body == {"all": True}:
+            identifiers = None
+        elif set(body) == {"ids"}:
+            identifiers = words(body["ids"], "ids", 100)
+        else:
+            fail(422, "BAD_BODY", "Supply notification ids or all:true")
+        with store.transaction() as tx:
+            tx.world()
+            user = current(request, tx)
+            for item in tx.list("notifications", user_id=user["id"]):
+                if identifiers is None or item["id"] in identifiers:
+                    item["read"] = True
+                    tx.put("notifications", item["id"], item)
+        return Response(status_code=204)
 
     @app.post("/api/auth/login")
     def login(request: Request, body: dict = Body(...)):
@@ -209,7 +270,7 @@ def create_app(database_url=None):
             user = tx.get("users", candidate["id"]) if candidate else None
             failures = tx.get("auth_failures", account_key) or {}
             retry = max(0, failures.get("blockedUntil", 0) - time.time())
-            if not retry and user and valid and not user.get("banned") and user["passwordHash"] == encoded:
+            if not retry and user and valid and not user.get("banned") and user["passwordHash"] == encoded and user["username"].casefold() == username.casefold():
                 tx.delete("auth_failures", account_key)
                 return authenticated_response(tx, user)
             if not retry:
@@ -316,6 +377,10 @@ def create_app(database_url=None):
             user = current(request, tx)
             task = find_task(tx, task_id)
             settings = world["settings"]
+            if mode == "submit":
+                from .break_audits import capacity_available
+                if not capacity_available(tx):
+                    fail(429, "NOTIFICATION_BACKLOG", "Notifications are catching up; try again shortly", {"Retry-After": "5"})
             clean_text(code, "code", settings, 1, 65536)
             cooldown = settings["runCooldownSeconds" if mode == "run" else "submitCooldownSeconds"]
             field = "lastRun" if mode == "run" else "lastSubmit"
@@ -327,12 +392,17 @@ def create_app(database_url=None):
             mine = tx.execute("SELECT COUNT(*) FROM jobs WHERE user_id=? AND status IN ('queued','running') AND id NOT LIKE 'recheck_%'", (user["id"],)).fetchone()[0]
             if pending >= settings["maxQueuedJobs"] or mine >= 2:
                 fail(429, "QUEUE_FULL", "The queue is full. Try again shortly.", {"Retry-After": "5"})
+            penalty = resubmit_penalty(tx, user, task, settings) if mode == "submit" else {"points": 0}
+            if penalty["points"] and (body.get("acceptResubmitPenalty") is not True or type(body.get("expectedPenaltyPoints")) is not int or body["expectedPenaltyPoints"] != penalty["points"]):
+                raise HTTPException(409, detail={"code": "PENALTY_CONFIRMATION_REQUIRED", "message": f"Submitting this solved task costs {penalty['points']} points", "points": penalty["points"]})
             job = {"id": uid("job_"), "userId": user["id"], "taskId": task["id"], "code": code,
-                   "languageVersion": version, "mode": mode, "createdAt": iso()}
+                   "languageVersion": version, "mode": mode, "createdAt": iso(), "penaltyPoints": penalty["points"]}
             tx.execute("INSERT INTO jobs(id,user_id,status,created,data) VALUES(?,?,'queued',?,?)", (job["id"], user["id"], now, dumps(job)))
             user[field] = now
+            user["submissionPenalties"] = user.get("submissionPenalties", 0) + penalty["points"]
+            user["rating"] -= penalty["points"]
             tx.put("users", user["id"], user)
-            return {"jobId": job["id"]}
+            return {"jobId": job["id"], "penaltyPoints": penalty["points"]}
 
     @app.post("/api/tasks/{task_id}/run", status_code=202)
     def run(task_id: str, request: Request, body: dict = Body(...)):
@@ -350,9 +420,22 @@ def create_app(database_url=None):
             if not row or (row[0] != user["id"] and user["role"] != "admin"):
                 fail(404, "NOT_FOUND", "Job not found")
             job = json.loads(row[2])
+            if isinstance(job.get("result"), dict):
+                result = dict(job["result"])
+                settings = tx.get("system", "world")["settings"]
+                if "submission" in result:
+                    actual = tx.get("submissions", result["submission"]["id"]) or result["submission"]
+                    result["submission"] = project_submission(tx, {key: val for key, val in actual.items() if key not in {"dependencies", "names"}}, settings, viewer=user)
+                notification = tx.get("notifications", result.get("notificationId", ""))
+                if notification and notification["userId"] == user["id"]:
+                    projected = project_notification(tx, notification, settings)
+                    if projected is not None:
+                        result["notification"] = projected
+                result.pop("notificationId", None)
+                job["result"] = result
             return {key: val for key, val in {"status": row[1], "result": job.get("result"), "error": job.get("error")}.items() if val is not None}
 
-    def submission_list(tx, task_id=None, user_id=None, limit=50, before_created=None, before_id=None):
+    def submission_list(tx, task_id=None, user_id=None, limit=50, before_created=None, before_id=None, viewer=None):
         if (before_created is None) != (before_id is None):
             fail(422, "BAD_CURSOR", "beforeCreated and beforeId must be supplied together")
         if before_created is not None:
@@ -366,20 +449,20 @@ def create_app(database_url=None):
             except ValueError:
                 fail(422, "BAD_CURSOR", "Invalid submission cursor date")
         values = tx.list("submissions", task_id=task_id, user_id=user_id, limit=max(1, min(limit, 500)), before_created=before_created, before_id=before_id)
-        return [summary(s) for s in values]
+        return [summary(s, tx, viewer) for s in values]
 
     @app.get("/api/submissions")
     def submissions(request: Request, taskId: str | None = None, userId: str | None = None, limit: int = 50, beforeCreated: str | None = None, beforeId: str | None = None):
         with store.transaction() as tx:
-            current(request, tx)
-            return submission_list(tx, taskId, userId, limit, beforeCreated, beforeId)
+            viewer = current(request, tx)
+            return submission_list(tx, taskId, userId, limit, beforeCreated, beforeId, viewer=viewer)
 
     @app.get("/api/tasks/{task_id}/submissions")
     def task_submissions(task_id: str, request: Request, scope: str = "mine", limit: int = 50, beforeCreated: str | None = None, beforeId: str | None = None):
         with store.transaction() as tx:
             user = current(request, tx)
             task = find_task(tx, task_id)
-            return submission_list(tx, task["id"], None if scope == "all" else user["id"], limit, beforeCreated, beforeId)
+            return submission_list(tx, task["id"], None if scope == "all" else user["id"], limit, beforeCreated, beforeId, viewer=user)
 
     @app.get("/api/submissions/{submission_id}")
     def submission_detail(submission_id: str, request: Request):
@@ -390,7 +473,7 @@ def create_app(database_url=None):
                 fail(404, "NOT_FOUND", "Submission not found")
             if value["userId"] != user["id"] and user["role"] != "admin":
                 fail(403, "FORBIDDEN", "Code is private to its author")
-            result = {key: val for key, val in value.items() if key not in {"dependencies", "names", "changes"}}
+            result = project_submission(tx, {key: val for key, val in value.items() if key not in {"dependencies", "names", "changes"}}, tx.get("system", "world")["settings"], viewer=user)
             previous = tx.execute("SELECT data FROM records WHERE kind='submissions' AND user_id=? AND task_id=? AND created<? ORDER BY created DESC LIMIT 1", (value["userId"], value["taskId"], value["createdAt"])).fetchone()
             if previous:
                 previous = json.loads(previous[0])
@@ -402,11 +485,13 @@ def create_app(database_url=None):
     @app.get("/api/rating/tables")
     def rating_tables():
         with store.transaction() as tx:
-            events = sorted({t["ratingTable"] for t in tx.list("tasks") if t.get("ratingTable")})
-            return [descriptor] + [{**descriptor, "id": event, "title": event, "description": "Event ranking"} for event in events]
+            tasks = tx.list("tasks")
+            events = sorted({t["ratingTable"] for t in tasks if t.get("ratingTable")})
+            return [descriptor] + [{**descriptor, "id": event, "title": event, "description": "Event ranking"} for event in events] + [{**descriptor, "id": "task:" + task["id"], "title": task["title"], "description": "Task ranking"} for task in tasks]
 
     @app.get("/api/rating")
-    def rating(request: Request, table: str = "global"):
+    def rating(request: Request, table: str = "global", q: str = ""):
+        q = text(q, "q", 0, 64).casefold().strip()
         with store.transaction() as tx:
             user = current(request, tx, required=False)
             users = [u for u in tx.list("users") if not u.get("banned")]
@@ -416,16 +501,13 @@ def create_app(database_url=None):
                 selected_tasks = [t for t in tasks if table == "task:" + t["id"] or t.get("ratingTable") == table]
                 if not selected_tasks:
                     fail(404, "NOT_FOUND", "Rating table not found")
-                scores = {}
-                for task in selected_tasks:
-                    for row in tx.execute("SELECT DISTINCT user_id FROM records WHERE kind='submissions' AND task_id=? AND state='OK'", (task["id"],)).fetchall():
-                        score, solved = scores.get(row[0], (0, 0))
-                        scores[row[0]] = (score + task["score"], solved + 1)
-                users = [{**u, "rating": scores.get(u["id"], (0, 0))[0], "solvedCount": scores.get(u["id"], (0, 0))[1]} for u in users]
+                selected = {task["id"]: task for task in selected_tasks}
+                solves = solved_task_map(tx, users, selected)
+                users = [{**u, "rating": sum(selected[key]["score"] for key in solves[u["id"]]), "solvedCount": len(solves[u["id"]])} for u in users]
                 selected_descriptor = {**descriptor, "id": table, "title": selected_tasks[0]["title"] if table.startswith("task:") else table}
             users.sort(key=lambda u: (-u["rating"], u["createdAt"]))
             rows = [{"rank": i + 1, "userId": u["id"], "username": u["username"], "score": u["rating"], "solved": u["solvedCount"], "extra": {}} for i, u in enumerate(users)]
-            return {"descriptor": selected_descriptor, "rows": rows, "me": next((r for r in rows if user and r["userId"] == user["id"]), None)}
+            return {"descriptor": selected_descriptor, "rows": [row for row in rows if q in row["username"].casefold()], "me": next((r for r in rows if user and r["userId"] == user["id"]), None)}
 
     @app.get("/api/tasks/{task_id}/insights")
     def insights(task_id: str):
@@ -462,6 +544,51 @@ def create_app(database_url=None):
                 result["last"] = {name: value for name, value in world["snapshot"].get("last", {}).items() if name in result["functions"]}
             return result
 
+    def change_world_name(name, request, version, body=None):
+        version = integer(version, "version", 0, 1000000000)
+        if body is not None and set(body) - {"version", "kind", "value", "code"}:
+            fail(422, "BAD_BODY", "Unknown state edit field")
+        with store.transaction() as tx:
+            current(request, tx, admin=True)
+            original = tx.get("system", "world")
+            if original["version"] != version:
+                fail(409, "WORLD_CHANGED", "The world changed; refresh before editing")
+        from .worker import sandbox, schedule_rechecks
+        result = sandbox({"action": "edit", "snapshot": original["snapshot"], "name": name,
+                          "kind": body.get("kind") if body else None, "delete": body is None,
+                          "code": body.get("code") if body else None, "value": body.get("value") if body else None})
+        if not isinstance(result, dict) or "snapshot" not in result:
+            errors = result.get("errors", []) if isinstance(result, dict) else []
+            raise HTTPException(422, detail={"code": "INVALID_STATE", "message": errors[0]["message"] if errors else "State validation exceeded its budget", "diagnostics": errors})
+        snapshot = result["snapshot"]
+        if len(dumps(snapshot)) > 4 * 1024 * 1024 or len(set(snapshot["variables"]) | set(snapshot["functions"])) > 20000:
+            fail(422, "WORLD_LIMIT", "The shared world exceeds its size limit")
+        with store.transaction() as tx:
+            world = tx.world()
+            admin = current(request, tx, admin=True)
+            if world["version"] != version:
+                fail(409, "WORLD_CHANGED", "The world changed; refresh before editing")
+            world["snapshot"] = snapshot
+            if body is None:
+                world["owners"].pop(name, None)
+                world.setdefault("ownerUsers", {}).pop(name, None)
+            elif body.get("kind") != "last":
+                world["owners"][name] = "admin:" + admin["id"]
+                world.setdefault("ownerUsers", {})[name] = admin["id"]
+            world["version"] += 1
+            tx.save_world(world)
+            schedule_rechecks(tx, {}, world, all_submissions=True)
+            tx.audit(admin["id"], "delete_global" if body is None else "edit_global", name, kind=body.get("kind") if body else None)
+            return {"version": world["version"]}
+
+    @app.patch("/api/admin/world/{name}")
+    def edit_world(name: str, request: Request, body: dict = Body(...)):
+        return change_world_name(name, request, body.get("version"), body)
+
+    @app.delete("/api/admin/world/{name}")
+    def delete_world_name(name: str, request: Request, version: int):
+        return change_world_name(name, request, version)
+
     @app.get("/api/news")
     def news():
         with store.transaction() as tx:
@@ -478,9 +605,9 @@ def create_app(database_url=None):
     @app.get("/api/admin/summary")
     def admin_summary(request: Request):
         with store.transaction() as tx:
-            current(request, tx, admin=True)
+            viewer = current(request, tx, admin=True)
             counts = {kind: tx.execute("SELECT COUNT(*) FROM records WHERE kind=?", (kind,)).fetchone()[0] for kind in ["users", "tasks", "submissions", "news"]}
-            return {**counts, "pendingReports": 0, "recent": submission_list(tx, limit=10), "queuedJobs": tx.execute("SELECT COUNT(*) FROM jobs WHERE status IN ('queued','running')").fetchone()[0]}
+            return {**counts, "pendingReports": 0, "recent": submission_list(tx, limit=10, viewer=viewer), "queuedJobs": tx.execute("SELECT COUNT(*) FROM jobs WHERE status IN ('queued','running')").fetchone()[0]}
 
     @app.get("/api/admin/settings")
     def settings(request: Request):
@@ -508,6 +635,14 @@ def create_app(database_url=None):
                             fail(422, "BAD_BODY", "Each visibility policy needs names and values set to public or admin_only")
                 elif key == "maxNameLength":
                     value = integer(value, key, 1, 128)
+                elif key in ("resubmitPenaltyEnabled", "solutionNotificationsEnabled", "showBreakerIdentity"):
+                    if type(value) is not bool:
+                        fail(422, "BAD_BODY", key + " must be boolean")
+                elif key == "breakImpactVisibility":
+                    if value not in ("usernames", "count", "hidden"):
+                        fail(422, "BAD_BODY", "Choose usernames, count or hidden")
+                elif key == "resubmitPenaltyPercent":
+                    value = integer(value, key, 0, 100)
                 elif key in ["allowedWords", "denyWords", "permittedOverrides"]:
                     value = words(value, key)
                     if key == "allowedWords" and any(not re.fullmatch("[a-zA-Z]+", word) for word in value):
@@ -533,7 +668,9 @@ def create_app(database_url=None):
     def admin_users(request: Request):
         with store.transaction() as tx:
             current(request, tx, admin=True)
-            return [public_user(u, True) for u in tx.list("users")]
+            users = tx.list("users")
+            solves = solved_task_map(tx, users)
+            return [{**public_user(u, True), "solvedTaskIds": sorted(solves[u["id"]])} for u in users]
 
     def protect_admin(tx, admin, user, body, deletion=False):
         removing = deletion or body.get("banned") is True or ("role" in body and body["role"] != "admin")
@@ -544,13 +681,69 @@ def create_app(database_url=None):
 
     @app.patch("/api/admin/users/{user_id}")
     def edit_user(user_id: str, request: Request, body: dict = Body(...)):
+        if set(body) - {"role", "banned", "nameLimit", "adminNote", "username", "rating", "solvedTaskIds", "purgeState"}:
+            fail(422, "BAD_BODY", "Unknown user setting")
+        if "purgeState" in body and type(body["purgeState"]) is not bool:
+            fail(422, "BAD_BODY", "purgeState must be boolean")
+        if body.get("purgeState") and body.get("banned") is not True:
+            fail(422, "BAD_BODY", "State removal must be requested together with a ban")
+        purge = None
+        if body.get("purgeState"):
+            from .admin_world import purge_user_state
+            from .worker import sandbox
+            with store.transaction() as tx:
+                admin = current(request, tx, admin=True)
+                user = tx.get("users", user_id)
+                if not user:
+                    fail(404, "NOT_FOUND", "User not found")
+                protect_admin(tx, admin, user, body)
+                original = tx.get("system", "world")
+                purge = purge_user_state(tx, original, user_id)
+            validation = sandbox({"action": "validate", "snapshot": purge["snapshot"], "changes": {}, "options": {"permitted_overrides": [], "max_overrides": 1000}})
+            if validation is None or validation:
+                fail(409, "CONTRACT_CONFLICT", "Removing this state conflicts with another override; restore related operations first")
         with store.transaction() as tx:
-            tx.world()
+            world = tx.world()
             admin = current(request, tx, admin=True)
             user = tx.get("users", user_id)
             if not user:
                 fail(404, "NOT_FOUND", "User not found")
             protect_admin(tx, admin, user, body)
+            if purge is not None:
+                if world["version"] != original["version"]:
+                    fail(409, "WORLD_CHANGED", "The world changed; retry the ban")
+                from .worker import schedule_rechecks
+                purge["version"] += 1
+                world = purge
+                tx.save_world(world)
+                schedule_rechecks(tx, {}, world, all_submissions=True)
+            if "username" in body:
+                username = clean_text(body["username"], "username", world["settings"], 3, 24)
+                if not re.fullmatch(r"[A-Za-z0-9_]+", username):
+                    fail(422, "BAD_BODY", "Invalid username")
+                owner = tx.get("usernames", username.casefold())
+                if owner and owner != user_id:
+                    fail(409, "USERNAME_TAKEN", "Username is already taken")
+                tx.delete("usernames", user["username"].casefold())
+                tx.put("usernames", username.casefold(), user_id)
+                if user.get("displayName") == user["username"]:
+                    user["displayName"] = username
+                user["username"] = username
+                for submission in tx.list("submissions", user_id=user_id):
+                    submission["username"] = username
+                    tx.put("submissions", submission["id"], submission)
+            if "solvedTaskIds" in body:
+                selected = words(body["solvedTaskIds"], "solvedTaskIds", 10000)
+                task_ids = {task["id"] for task in tx.list("tasks")}
+                if set(selected) - task_ids:
+                    fail(422, "BAD_BODY", "Unknown task in solvedTaskIds")
+                natural = solved_tasks(tx, {**user, "solvedOverrides": {}})
+                user["solvedOverrides"] = {task_id: task_id in selected for task_id in task_ids if (task_id in natural) != (task_id in selected)}
+            if "rating" in body:
+                target = integer(body["rating"], "rating", -1000000000, 1000000000)
+                tasks = {task["id"]: task for task in tx.list("tasks")}
+                base = sum(tasks[key]["score"] for key in solved_tasks(tx, user, tasks))
+                user["ratingAdjustment"] = target - base + user.get("submissionPenalties", 0)
             if "role" in body:
                 if body["role"] not in ["admin", "user"]:
                     fail(422, "BAD_BODY", "Invalid role")
@@ -568,8 +761,10 @@ def create_app(database_url=None):
             if "adminNote" in body:
                 user["adminNote"] = text(body["adminNote"], "adminNote", 0, 1000)
             tx.put("users", user_id, user)
+            refresh_ratings(tx)
             tx.audit(admin["id"], "update_user", user_id, fields=sorted(body))
-            return public_user(user, True)
+            user = tx.get("users", user_id)
+            return {**public_user(user, True), "solvedTaskIds": sorted(solved_tasks(tx, user))}
 
     @app.post("/api/admin/users/{user_id}/password", status_code=204)
     def reset_password(user_id: str, request: Request, body: dict = Body(...)):
@@ -592,18 +787,25 @@ def create_app(database_url=None):
     @app.delete("/api/admin/users/{user_id}", status_code=204)
     def delete_user(user_id: str, request: Request):
         with store.transaction() as tx:
-            tx.world()
+            world = tx.world()
             admin = current(request, tx, admin=True)
             user = tx.get("users", user_id)
             if not user:
                 fail(404, "NOT_FOUND", "User not found")
             protect_admin(tx, admin, user, {}, True)
+            from .ownership import remember_owners
+            remember_owners(tx, world)
+            world["version"] += 1
+            tx.save_world(world)
             revoke_sessions(tx, user_id)
             tx.delete("users", user_id)
             tx.delete("usernames", user["username"].casefold())
             tx.execute("DELETE FROM dependencies WHERE submission_id IN (SELECT id FROM records WHERE kind='submissions' AND user_id=?)", (user_id,))
             tx.execute("DELETE FROM records WHERE kind='submissions' AND user_id=?", (user_id,))
-            tx.execute("DELETE FROM jobs WHERE user_id=?", (user_id,))
+            # Attribution jobs must finish releasing shared snapshots even if their
+            # source account disappears. Their worker skips missing source users.
+            tx.execute("DELETE FROM jobs WHERE user_id=? AND id NOT LIKE 'recheck_audit_%'", (user_id,))
+            tx.execute("DELETE FROM records WHERE kind='notifications' AND user_id=?", (user_id,))
             tx.audit(admin["id"], "delete_user", user_id)
         return Response(status_code=204)
 
@@ -647,8 +849,8 @@ def create_app(database_url=None):
     @app.get("/api/admin/submissions")
     def admin_submissions(request: Request, limit: int = 100, beforeCreated: str | None = None, beforeId: str | None = None):
         with store.transaction() as tx:
-            current(request, tx, admin=True)
-            return submission_list(tx, limit=limit, before_created=beforeCreated, before_id=beforeId)
+            viewer = current(request, tx, admin=True)
+            return submission_list(tx, limit=limit, before_created=beforeCreated, before_id=beforeId, viewer=viewer)
 
     @app.get("/api/admin/audit")
     def audit(request: Request):
@@ -716,11 +918,15 @@ def create_app(database_url=None):
         for key in ["slug", "title", "statement", "starterCode", "entryPoint"]:
             if key in body:
                 item[key] = text(body[key], key, 0, 65536 if key == "starterCode" else 20000)
-        if not item.get("title") or not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", item.get("slug", "")):
-            fail(422, "BAD_BODY", "A title and lowercase hyphenated slug are required")
-        for key in ["tags", "constraints"]:
+        if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", item.get("slug", "")):
+            fail(422, "BAD_BODY", "A lowercase hyphenated slug is required")
+        for key in ["tags"]:
             if key in body:
                 item[key] = words(body[key], key, 100)
+        if "constraints" in body:
+            if not isinstance(body["constraints"], list) or len(body["constraints"]) > 100:
+                fail(422, "BAD_BODY", "constraints must be a list of at most 100 strings")
+            item["constraints"] = [text(value, "constraint", 0, 2000) for value in body["constraints"]]
         for key, lower, upper in [("score", 0, 10000), ("timeLimitMs", 10, 5000), ("coreOverrideLimit", 0, 32)]:
             if key in body:
                 item[key] = integer(body[key], key, lower, upper)
@@ -734,6 +940,8 @@ def create_app(database_url=None):
                 fail(422, "BAD_BODY", "Dictionary entries must contain English letters only")
         if "ratingTable" in body:
             item["ratingTable"] = text(body["ratingTable"], "ratingTable", 0, 80)
+            if item["ratingTable"] == "global" or item["ratingTable"].startswith("task:"):
+                fail(422, "BAD_BODY", "This rating table name is reserved")
         if "tests" in body:
             tests = body["tests"]
             if not isinstance(tests, list) or not 1 <= len(tests) <= 100:
@@ -765,6 +973,52 @@ def create_app(database_url=None):
             item["examples"] = [{"input": dumps(t["input"]), "output": dumps(t["expected"])} for t in tests if not t.get("hidden")]
         if not item.get("tests"):
             fail(422, "BAD_BODY", "Tests are required")
+        if "translations" in body:
+            translations = body["translations"]
+            if not isinstance(translations, dict) or not translations or set(translations) - {"en", "ru"}:
+                fail(422, "BAD_BODY", "Supply at least one English or Russian translation")
+            cleaned = {}
+            for locale, translated in translations.items():
+                if not isinstance(translated, dict) or set(translated) - {"title", "statement", "constraints", "examples"}:
+                    fail(422, "BAD_BODY", "Invalid task translation")
+                entry = {"title": text(translated.get("title"), "translated title", 1, 256), "statement": text(translated.get("statement"), "translated statement", 1, 20000)}
+                if not entry["title"].strip() or not entry["statement"].strip():
+                    fail(422, "BAD_BODY", "Each translation needs a title and statement")
+                constraints = translated.get("constraints", [])
+                if not isinstance(constraints, list) or len(constraints) > 100:
+                    fail(422, "BAD_BODY", "Translated constraints must be a list of at most 100 strings")
+                entry["constraints"] = [text(value, "translated constraint", 0, 2000) for value in constraints]
+                examples = translated.get("examples", item["examples"])
+                if not isinstance(examples, list) or len(examples) > 100:
+                    fail(422, "BAD_BODY", "Translated examples must be a list of at most 100 examples")
+                entry["examples"] = []
+                for example in examples:
+                    if not isinstance(example, dict) or set(example) - {"input", "output", "explanation"}:
+                        fail(422, "BAD_BODY", "Invalid translated example")
+                    clean = {key: text(example.get(key), "example " + key, 0, 20000) for key in ("input", "output")}
+                    if "explanation" in example:
+                        clean["explanation"] = text(example["explanation"], "example explanation", 0, 20000)
+                    entry["examples"].append(clean)
+                cleaned[locale] = entry
+            item["translations"] = cleaned
+        elif not item.get("translations"):
+            if not item.get("title") or not item.get("title", "").strip():
+                fail(422, "BAD_BODY", "A title is required")
+            item["translations"] = {"en": {key: item[key] for key in ("title", "statement", "constraints", "examples")}}
+        else:
+            preferred = "en" if "en" in item["translations"] else "ru"
+            item["translations"] = {key: dict(value) for key, value in item["translations"].items()}
+            for field in ("title", "statement", "constraints", "examples"):
+                if field in body or (field == "examples" and "tests" in body):
+                    item["translations"][preferred][field] = item[field]
+        preferred = item["translations"].get("en") or item["translations"]["ru"]
+        for translated in item["translations"].values():
+            for field, maximum in (("title", 256), ("statement", 20000)):
+                value = text(translated.get(field), "translated " + field, 1, maximum)
+                if not value.strip():
+                    fail(422, "BAD_BODY", "Each translation needs a title and statement")
+        for field in ("title", "statement", "constraints", "examples"):
+            item[field] = preferred[field]
         return item
 
     @app.get("/api/admin/tasks")
@@ -809,6 +1063,8 @@ def create_app(database_url=None):
             world = tx.world()
             admin = current(request, tx, admin=True)
             task = find_task(tx, task_id)
+            from .ownership import remember_owners
+            remember_owners(tx, world)
             tx.delete("tasks", task["id"])
             tx.execute("DELETE FROM dependencies WHERE submission_id IN (SELECT id FROM records WHERE kind='submissions' AND task_id=?)", (task["id"],))
             tx.execute("DELETE FROM records WHERE kind='submissions' AND task_id=?", (task["id"],))

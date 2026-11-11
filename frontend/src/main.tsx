@@ -3,6 +3,10 @@ import { createRoot } from 'react-dom/client'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { BrowserRouter } from 'react-router-dom'
 import App from './App'
+import '@fontsource-variable/jetbrains-mono'
+import '@fontsource-variable/jetbrains-mono/wght-italic.css'
+import '@fontsource-variable/space-grotesk'
+import '@fontsource/press-start-2p/400.css'
 import './styles/global.css'
 
 const queryClient = new QueryClient({

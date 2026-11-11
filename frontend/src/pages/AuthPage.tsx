@@ -1,3 +1,4 @@
+import { t, useLocale } from '@/lib/i18n'
 import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useLocation, useNavigate } from 'react-router-dom'
@@ -16,6 +17,7 @@ function errorMessage(error: unknown): string {
 }
 
 export function AuthPage() {
+  useLocale()
   const { user, isAdmin } = useSession()
   const navigate = useNavigate()
   const location = useLocation()
@@ -45,7 +47,7 @@ export function AuthPage() {
       { username: name, password: pass },
       {
         onSuccess: (data) => {
-          toast('success', `Welcome back, ${data.user.displayName}.`)
+          toast('success', t('Welcome back, {name}.', { name: data.user.displayName }))
           navigate('/tasks')
         },
       },
@@ -57,7 +59,7 @@ export function AuthPage() {
       { username, password, inviteCode: inviteCode || undefined },
       {
         onSuccess: (data) => {
-          toast('success', `Account created: ${data.user.username}`)
+          toast('success', t('Account created: {name}', { name: data.user.username }))
           navigate('/tasks')
         },
       },
@@ -71,15 +73,14 @@ export function AuthPage() {
           <div className="row" style={{ gap: 16 }}>
             <Avatar username={user.username} hue={user.avatarHue} size="lg" />
             <div>
-              <div className="eyebrow">session active</div>
+              <div className="eyebrow">{t("session active")}</div>
               <h2 style={{ fontSize: 24, margin: '4px 0' }}>{user.displayName}</h2>
               <div className="row wrap" style={{ gap: 6 }}>
-                <Badge tone="cyan">{user.rating} rating</Badge>
-                <Badge tone="violet">{user.solvedCount} solved</Badge>
+                <Badge tone="cyan">{user.rating} {t("rating")}</Badge>
+                <Badge tone="violet">{user.solvedCount} {t("solved")}</Badge>
                 {isAdmin && (
                   <Badge tone="amber">
-                    <ShieldCheck size={10} /> admin
-                  </Badge>
+                    <ShieldCheck size={10} /> {t("admin")}</Badge>
                 )}
               </div>
             </div>
@@ -87,12 +88,10 @@ export function AuthPage() {
 
           <div className="row wrap mt-24" style={{ gap: 10 }}>
             <LinkButton to="/tasks" variant="primary">
-              Go to tasks
-            </LinkButton>
+              {t("Go to tasks")}</LinkButton>
             {isAdmin && (
               <LinkButton to="/admin" icon={<ShieldCheck size={13} />}>
-                Admin pane
-              </LinkButton>
+                {t("Admin pane")}</LinkButton>
             )}
             <GlowButton
               variant="danger"
@@ -102,8 +101,7 @@ export function AuthPage() {
                 })
               }
             >
-              Log out
-            </GlowButton>
+              {t("Log out")}</GlowButton>
           </div>
         </Panel>
       </div>
@@ -116,11 +114,10 @@ export function AuthPage() {
         <div className="row" style={{ gap: 16, marginBottom: 20 }}>
           <CatMascot size={72} mood={mode === 'login' ? 'idle' : 'happy'} />
           <div>
-            <div className="eyebrow">terminal access</div>
-            <h2 style={{ fontSize: 24, margin: '4px 0' }}>{mode === 'login' ? 'Sign in' : 'Create account'}</h2>
+            <div className="eyebrow">{t("terminal access")}</div>
+            <h2 style={{ fontSize: 24, margin: '4px 0' }}>{mode === "login" ? t("Sign in") : t("Create account")}</h2>
             <div className="muted" style={{ fontSize: 12.5 }}>
-              The cat checks your token, not your vibes.
-            </div>
+              {t("The cat checks your token, not your vibes.")}</div>
           </div>
         </div>
 
@@ -129,27 +126,25 @@ export function AuthPage() {
             className={mode === 'login' ? 'filter-chip active' : 'filter-chip'}
             onClick={() => setMode('login')}
           >
-            login
-          </button>
+            {t("login")}</button>
           <button
             className={mode === 'register' ? 'filter-chip active' : 'filter-chip'}
             disabled={config.data?.registrationMode === 'closed'}
             onClick={() => setMode('register')}
           >
-            register
-          </button>
+            {t("register")}</button>
         </div>
 
         <div className="stack">
-          {config.data?.registrationMode === 'closed' && <p className="muted">Registration is currently closed.</p>}
-          {mode === 'register' && config.data?.registrationMode === 'invite' && (
+          {config.data?.registrationMode === "closed" && <p className="muted">{t("Registration is currently closed.")}</p>}
+          {mode === "register" && config.data?.registrationMode === "invite" && (
             <div className="field">
-              <label htmlFor="auth-invite">Invitation code</label>
+              <label htmlFor="auth-invite">{t("Invitation code")}</label>
               <input id="auth-invite" className="input" value={inviteCode} autoComplete="off" onChange={(event) => setInviteCode(event.target.value)} />
             </div>
           )}
           <div className="field">
-            <label htmlFor="auth-username">username</label>
+            <label htmlFor="auth-username">{t("Login")}</label>
             <input
               id="auth-username"
               className="input"
@@ -160,7 +155,7 @@ export function AuthPage() {
           </div>
 
           <div className="field">
-            <label htmlFor="auth-password">password</label>
+            <label htmlFor="auth-password">{t("password")}</label>
             <input
               id="auth-password"
               className="input"
@@ -179,18 +174,17 @@ export function AuthPage() {
           </div>
 
           {(login.error || register.error) && (
-            <div className="form-error">{errorMessage(login.error ?? register.error)}</div>
+            <div className="form-error">{t(errorMessage(login.error ?? register.error))}</div>
           )}
 
-          {mode === 'login' ? (
+          {mode === "login" ? (
             <GlowButton
               variant="primary"
               loading={login.isPending}
               icon={<LogIn size={14} />}
               onClick={() => doLogin()}
             >
-              Sign in
-            </GlowButton>
+              {t("Sign in")}</GlowButton>
           ) : (
             <GlowButton
               variant="primary"
@@ -198,8 +192,7 @@ export function AuthPage() {
               icon={<UserPlus size={14} />}
               onClick={doRegister}
             >
-              Register
-            </GlowButton>
+              {t("Register")}</GlowButton>
           )}
         </div>
 

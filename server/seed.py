@@ -5,16 +5,32 @@ WORDS = "a b c x y z n i j k in out input output value values result answer solv
 
 
 def initial_world():
-    return {"version": 0, "snapshot": {"variables": {}, "functions": {}, "last": {}}, "owners": {}, "settings": {
+    return {"version": 0, "languageRevision": "no-swap-2026-11", "snapshot": {"variables": {}, "functions": {}, "last": {}}, "owners": {}, "settings": {
         "registrationMode": "invite", "defaultNameLimit": 100, "maxNameLength": 48,
         "worldVisibility": {
             "variables": {"names": "public", "values": "admin_only"},
             "functions": {"names": "public", "values": "admin_only"},
         },
         "runCooldownSeconds": 2, "submitCooldownSeconds": 10,
+        "resubmitPenaltyEnabled": False, "resubmitPenaltyPercent": 5,
+        "solutionNotificationsEnabled": True, "showBreakerIdentity": False, "breakImpactVisibility": "count",
         "allowedWords": sorted(set(WORDS)), "denyWords": [],
         "permittedOverrides": OPERATIONS, "defaultCoreOverrideLimit": 2, "maxQueuedJobs": 300,
     }}
+
+
+TASKS_RU = {
+    "shared-sum": ("Общая сумма", "Верните сумму двух целых аргументов. При выходе за диапазон от −1000000 до 1000000 числа циклически переносятся на другой конец диапазона. Другие игроки могут менять значения ваших глобальных параметров.", []),
+    "cyclic-access": ("По кругу списка", "Верните элемент списка по переданному индексу. Индексы циклические: после последнего элемента идёт первый. Для пустого списка верните целый ноль.", []),
+    "list-sum": ("Сумма в меняющемся мире", "Верните сумму всех целых чисел в списке. Сумма пустого списка равна нулю. Арифметика и преобразования подчиняются правилам текущего общего мира.", ["Список содержит не более 100 целых чисел."]),
+    "mirror-text": ("Зеркальный текст", "Верните входную строку в обратном порядке символов. Символом считается кодовая точка Unicode, в том числе эмодзи. Пустая строка остаётся пустой.", ["Строка содержит не более 100 символов."]),
+    "positive-count": ("Выше нуля", "Посчитайте целые числа в списке, которые строго больше нуля. Ноль не учитывается. Для пустого списка результат равен нулю.", ["Список содержит не более 100 целых чисел."]),
+    "range-total": ("Между двумя числами", "Верните сумму всех целых чисел от low до high включительно. Если low больше high, верните ноль. К результату применяются правила циклического переноса целых чисел языка.", ["Обе границы находятся в диапазоне от −1000 до 1000."]),
+    "text-window": ("Окно вокруг света", "Верните count последовательных символов строки text, начиная с индекса start. Чтение циклически продолжается через оба конца строки. Верните пустую строку, если text пуста или count равен нулю.", ["В строке не более 100 символов Unicode; count — от 0 до 100."]),
+    "unique-values": ("Первое появление", "Верните новый список, в котором каждое различное входное целое число встречается один раз, в порядке первого появления. Не сортируйте значения. Для пустого входа верните пустой список.", ["Список содержит не более 80 целых чисел."]),
+    "dictionary-tally": ("Каждое слово на счету", "Верните словарь: каждому различному входному слову соответствует число его появлений. Пустая строка тоже может быть ключом. Порядок записей словаря не важен.", ["В списке не более 80 строк, в каждой — не более 30 символов Unicode."]),
+    "running-median": ("Подвижная медиана", "Для каждого непустого префикса списка целых чисел найдите нижнюю медиану. Это среднее по позиции значение после сортировки; если средних два, выберите меньшее. Верните список медиан префиксов. Не усредняйте два средних значения. Для пустого входа верните пустой список.", ["В списке не более 25 целых чисел."]),
+}
 
 
 def task(slug, title, difficulty, score, statement, parameters, tests, types, entry=None, constraints=()):
@@ -23,11 +39,19 @@ def task(slug, title, difficulty, score, statement, parameters, tests, types, en
     annotation = "<" + ", ".join(types) + "> " if types else ""
     starter = f"@solution\nfn {annotation}{entry}({parameters}) {{\n    // Write your solution here.\n    return 0;\n}}\n"
     public_tests = [test for test in tests if not test.get("hidden")]
+    common_constraints = ["Every test starts from the same shared world snapshot.", "Exactly one @solution function is required.", "All names, including parameters, are global."]
+    examples = [{"input": json.dumps(test["input"], ensure_ascii=False), "output": json.dumps(test["expected"], ensure_ascii=False)} for test in public_tests]
+    translations = {"en": {"title": title, "statement": statement, "constraints": [*common_constraints, *constraints], "examples": examples}}
+    if slug in TASKS_RU:
+        ru_title, ru_statement, ru_constraints = TASKS_RU[slug]
+        translations["ru"] = {"title": ru_title, "statement": ru_statement,
+                              "constraints": ["Каждый тест начинается с одного и того же снимка общего мира.", "Нужна ровно одна функция с аннотацией @solution.", "Все имена, включая параметры, глобальные.", *ru_constraints],
+                              "examples": examples}
     return {"id": slug, "slug": slug, "title": title, "difficulty": difficulty,
             "score": score, "tags": ["shared-state", difficulty], "solvedBy": 0,
             "languageVersion": "v0.3", "addonPacks": ["core"], "statement": statement,
-            "constraints": ["Every test starts from the same shared world snapshot.", "Exactly one @solution function is required.", "All names, including parameters, are global.", *constraints],
-            "examples": [{"input": json.dumps(test["input"], ensure_ascii=False), "output": json.dumps(test["expected"], ensure_ascii=False)} for test in public_tests],
+            "constraints": [*common_constraints, *constraints], "translations": translations,
+            "examples": examples,
             "starterCode": starter, "entryPoint": entry, "timeLimitMs": 1000,
             "coreOverrideLimit": 2, "allowedWords": None, "tests": tests}
 

@@ -16,9 +16,9 @@
   --ok: #0ff1ca;
   --bad: #ff2e88;
   --warn: #ffcf5c;
-  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
-  --font-body: 'Space Grotesk', system-ui, -apple-system, sans-serif;
-  --font-pixel: 'Press Start 2P', 'JetBrains Mono', monospace;
+  --font-mono: 'JetBrains Mono Variable', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-body: 'Space Grotesk Variable', system-ui, -apple-system, sans-serif;
+  --font-pixel: 'Press Start 2P', 'JetBrains Mono Variable', monospace;
   --radius: 14px;
   --shadow-glow: 0 0 0 1px rgba(15, 241, 202, 0.12), 0 0 32px rgba(15, 241, 202, 0.08);
 }
@@ -2107,7 +2107,35 @@ kbd {
   }
 }
 
+.notification-bell { position: relative; }
+.notification-trigger { position: relative; }
+.notification-count { position: absolute; top: -5px; right: -6px; padding: 1px 4px; min-width: 15px; border-radius: 8px; background: var(--magenta); color: #fff; font: 9px var(--font-mono); line-height: 14px; }
+.notification-panel { position: absolute; top: calc(100% + 14px); right: -70px; width: min(390px, calc(100vw - 28px)); z-index: 90; background: var(--bg-1); box-shadow: 0 12px 40px #0009; overflow: hidden; }
+.notification-panel-head { padding: 10px 12px; border-bottom: 1px solid var(--line); font: 12px var(--font-mono); }
+.notification-list { max-height: min(480px, 65vh); overflow-y: auto; overscroll-behavior: contain; }
+.notification-empty { padding: 14px; font-size: 12px; }
+.notification-entry { width: 100%; display: grid; grid-template-columns: 8px 1fr; gap: 10px; padding: 12px 14px; border: 0; border-bottom: 1px solid var(--line-soft); background: transparent; color: var(--muted); text-align: left; cursor: pointer; }
+.notification-entry:hover, .notification-entry:focus-visible { background: #ffffff08; }
+.notification-entry.unread { background: #0ff1ca07; color: var(--text); }
+.notification-dot { display: block; width: 6px; height: 6px; margin-top: 5px; border-radius: 50%; background: var(--dim); }
+.unread .notification-dot { background: var(--cyan); }
+.notification-broken, .notification-error, .notification-rejected { background: var(--magenta) !important; }
+.notification-message { display: block; font-size: 12.5px; line-height: 1.5; overflow-wrap: anywhere; }
+.notification-time { display: block; margin-top: 5px; color: var(--dim); font: 10px var(--font-mono); }
+.notification-panel-foot { padding: 8px 12px; border-top: 1px solid var(--line); }
+.break-impact { max-width: 220px; white-space: normal; overflow-wrap: anywhere; }
+.toast-fireworks, .toast-destruction { position: relative; overflow: hidden; isolation: isolate; }
+.toast-burst { position: absolute; pointer-events: none; left: 25px; top: 50%; z-index: -1; }
+.toast-burst i { position: absolute; width: 4px; height: 4px; border-radius: 50%; background: var(--cyan); animation: toast-firework 1000ms ease-out both; transform: rotate(calc(var(--ray) * 36deg)); }
+.toast-burst i:nth-child(3n) { background: var(--amber); }
+.toast-burst i:nth-child(3n + 1) { background: var(--magenta); }
+.toast-static { position: absolute; inset: 0; display: flex; align-items: center; pointer-events: none; z-index: -1; opacity: 0; color: var(--magenta); font: 11px var(--font-mono); letter-spacing: 4px; background: repeating-linear-gradient(0deg, transparent 0 6px, #ff2e880a 6px 8px); animation: toast-destruction 900ms ease-out both; }
+@keyframes toast-firework { 0% { opacity: 0; transform: rotate(calc(var(--ray) * 36deg)) translateY(0) scale(.5); } 20% { opacity: .9; } 100% { opacity: 0; transform: rotate(calc(var(--ray) * 36deg)) translateY(-48px) scale(.2); } }
+@keyframes toast-destruction { 0% { opacity: 0; transform: translateX(-18px); } 25% { opacity: .16; transform: translateX(2px); } 65% { opacity: .08; transform: translateX(-3px); } 100% { opacity: 0; transform: translateX(0); } }
+@media (max-width: 760px) { .notification-panel { position: fixed; top: 72px; left: 14px; right: 14px; width: auto; } }
+
 @media (prefers-reduced-motion: reduce) {
+  .toast-burst, .toast-static { display: none; }
   *,
   *::before,
   *::after {

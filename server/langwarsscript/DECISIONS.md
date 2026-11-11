@@ -65,11 +65,15 @@ The following choices resolve gaps or contradictions in the working specificatio
   cannot contain references. Snapshot encoding uses plain integers/strings/lists
   and `{"$dict": [[key, value], ...]}` for arbitrary dictionary keys. Each global
   name is decoded independently, so aliases do not cross snapshot boundaries.
-- `set`, `push_back` and `swap` return `0`. Two-argument `swap` writes only to named
-  arguments; writes toward anonymous expressions are NOP. Three-argument `swap`
-  exchanges two elements in a list/dictionary. Cast-created temporary collections
+- `set` and `push_back` return `0`. Cast-created temporary collections
   are mutated only temporarily. Mutating operations cannot alter a frozen recheck
   overlay, even through aliases or nested collection references.
+- `swap` has been removed as a built-in operation at the platform owner's request,
+  ahead of the corresponding specification cleanup. It is an ordinary name: an
+  undefined call evaluates its arguments and returns `0`, as with any unknown name;
+  players may define their own variable or function named `swap` if their dictionary
+  permits it. It has no special mutation behavior and bypasses no overridden
+  operations. Existing source is rejudged under these current language rules.
 - Default standard-library implementations participate as typed ADL candidates.
   A user override replaces the default candidate for its first-argument domain
   and standard arity; untouched domains retain their defaults. Therefore an integer

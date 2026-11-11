@@ -25,7 +25,7 @@ export const lwEditorTheme = EditorView.theme(
       fontSize: '13.5px',
     },
     '.cm-scroller': {
-      fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+      fontFamily: 'var(--font-mono)',
       lineHeight: '1.68',
       minHeight: '340px',
       maxHeight: '560px',
@@ -85,7 +85,7 @@ export const lwEditorTheme = EditorView.theme(
       border: '1px solid #232347',
       borderRadius: '8px',
       color: '#e8e8ff',
-      fontFamily: "'JetBrains Mono', monospace",
+      fontFamily: 'var(--font-mono)',
       fontSize: '12px',
     },
     '.cm-tooltip-autocomplete > ul > li[aria-selected]': {

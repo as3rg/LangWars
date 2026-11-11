@@ -1,3 +1,4 @@
+import { t, useLocale } from '@/lib/i18n'
 import { AlertCircle, AlertTriangle, CheckCircle2, Info } from 'lucide-react'
 import type { Severity } from '@/api/types'
 import { positionAt } from '@/lwlang'
@@ -24,12 +25,12 @@ const ICONS = {
 } as const
 
 export function DiagnosticList({ diagnostics, code, onSelect }: DiagnosticListProps) {
+  useLocale()
   if (diagnostics.length === 0) {
     return (
       <div className="problems-empty">
         <CheckCircle2 size={15} color="var(--cyan)" />
-        No diagnostics. Run your code to check it.
-      </div>
+        {t("No diagnostics. Run your code to check it.")}</div>
     )
   }
 
@@ -49,7 +50,7 @@ export function DiagnosticList({ diagnostics, code, onSelect }: DiagnosticListPr
             <span className="diagnostic-msg">
               {diagnostic.message}
               <span className="diagnostic-meta">
-                {diagnostic.code} · {diagnostic.addonId} · line {position.line}:{position.column}
+                {diagnostic.code} · {diagnostic.addonId} {t("· line ")}{position.line}:{position.column}
               </span>
             </span>
           </button>

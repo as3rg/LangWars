@@ -2,7 +2,7 @@ export type Role = 'user' | 'admin'
 export type Difficulty = 'easy' | 'medium' | 'hard' | 'nightmare'
 export type NewsCategory = 'event' | 'update' | 'maintenance' | 'holiday'
 export type Accent = 'cyan' | 'magenta' | 'violet' | 'amber'
-export type VerdictStatus = 'OK' | 'FAIL' | 'WRONG_ANSWER' | 'TLE' | 'CE'
+export type VerdictStatus = 'OK' | 'FAIL' | 'WRONG_ANSWER' | 'TLE' | 'CE' | 'BROKEN'
 export type Severity = 'error' | 'warning' | 'info'
 
 export interface User {
@@ -19,6 +19,7 @@ export interface User {
   banned?: boolean
   nameLimit?: number
   usedNames?: number
+  solvedTaskIds?: string[]
 }
 
 export interface AuthResponse {
@@ -51,6 +52,16 @@ export interface TaskSummary {
   addonPacks: string[]
   solved?: boolean
   attempted?: boolean
+  broken?: boolean
+  status?: 'solved' | 'broken' | 'attempted' | 'new'
+  translations?: Partial<Record<'en' | 'ru', TaskTranslation>>
+}
+
+export interface TaskTranslation {
+  title: string
+  statement: string
+  constraints: string[]
+  examples?: TaskExample[]
 }
 
 export interface TaskExample {
@@ -77,6 +88,7 @@ export interface Task extends TaskSummary {
   ratingTable?: string
   allowedWords?: string[] | null
   coreOverrideLimit?: number
+  resubmitPenalty?: { enabled: boolean; percent: number; points: number }
 }
 
 export interface PlatformSettings {
@@ -90,6 +102,11 @@ export interface PlatformSettings {
   defaultCoreOverrideLimit: number
   maxQueuedJobs: number
   maxNameLength: number
+  resubmitPenaltyEnabled: boolean
+  resubmitPenaltyPercent: number
+  solutionNotificationsEnabled: boolean
+  showBreakerIdentity: boolean
+  breakImpactVisibility: 'usernames' | 'count' | 'hidden'
   worldVisibility: Record<'variables' | 'functions', Record<'names' | 'values', 'admin_only' | 'public'>>
 }
 
@@ -162,6 +179,39 @@ export interface SubmissionSummary {
   durationMs: number
   testsPassed: number
   testsTotal: number
+  verdictStatus?: Exclude<VerdictStatus, 'BROKEN'>
+  breakImpact?: BreakImpact
+}
+
+export interface BreakImpact {
+  userCount: number
+  usernames?: string[]
+}
+
+export type NotificationKind = 'accepted' | 'rejected' | 'broken' | 'repaired' | 'breaking' | 'info' | 'success' | 'error'
+
+export interface UserNotification {
+  id: string
+  kind: NotificationKind
+  createdAt: string
+  read: boolean
+  taskId?: string
+  taskTitle?: string
+  submissionId?: string
+  verdictStatus?: string
+  breaker?: { userId: string; username: string }
+  impact?: BreakImpact
+  message?: string
+  occurredAt?: string
+  historical?: boolean
+}
+
+export interface NotificationPage {
+  items: UserNotification[]
+  unreadCount: number
+  enabled: boolean
+  showBreakerIdentity: boolean
+  breakImpactVisibility: 'usernames' | 'count' | 'hidden'
 }
 
 export interface SubmissionCursor {
@@ -231,6 +281,7 @@ export interface RatingUpdate {
 export interface SubmitResult {
   submission: Submission
   ratingUpdate: RatingUpdate
+  notification?: UserNotification
 }
 
 export interface Insights {

@@ -43,6 +43,58 @@ class SeedTaskTests(unittest.TestCase):
         result = judge(TASK_SOLUTIONS["running-median"], [{"input": [items], "expected": expected}], options=self.options)
         self.assertEqual(result["status"], "OK", result)
 
+    def test_seed_translations_keep_examples_public_and_program_inputs_unchanged(self):
+        import json
+        for task in initial_tasks():
+            with self.subTest(task=task["id"]):
+                self.assertEqual(set(task["translations"]), {"en", "ru"})
+                public = [case for case in task["tests"] if not case.get("hidden")]
+                for language, translation in task["translations"].items():
+                    self.assertTrue(translation["title"])
+                    self.assertTrue(translation["statement"])
+                    self.assertEqual(len(translation["constraints"]), len(task["constraints"]))
+                    self.assertEqual(len(translation["examples"]), len(public))
+                    for example, case in zip(translation["examples"], public):
+                        self.assertEqual(json.loads(example["input"]), case["input"])
+                        self.assertEqual(json.loads(example["output"]), case["expected"])
+                self.assertNotEqual(task["translations"]["en"]["title"], task["translations"]["ru"]["title"])
+
+    def test_existing_installation_only_backfills_untouched_seed_translations(self):
+        import tempfile
+        from pathlib import Path
+        from server.store import Store
+        with tempfile.TemporaryDirectory() as folder:
+            store = Store("sqlite:///" + str(Path(folder) / "world.db"))
+            store.initialize()
+            with store.transaction() as tx:
+                original = tx.get("tasks", "shared-sum")
+                original.pop("translations")
+                tx.put("tasks", original["id"], original)
+                custom = tx.get("tasks", "cyclic-access")
+                custom.pop("translations")
+                custom["constraints"] = ["An administrator changed the requirements."]
+                tx.put("tasks", custom["id"], custom)
+                translated = tx.get("tasks", "list-sum")
+                translated["translations"] = {"ru": {"title": "Свой перевод", "statement": "Свои условия", "constraints": []}}
+                tx.put("tasks", translated["id"], translated)
+                world = tx.world()
+                world["version"] = 7
+                world["snapshot"]["variables"]["answer"] = 42
+                world["settings"].pop("resubmitPenaltyEnabled", None)
+                world["settings"].pop("resubmitPenaltyPercent", None)
+                tx.save_world(world)
+            store.initialize()
+            store.initialize()
+            with store.transaction() as tx:
+                self.assertEqual(set(tx.get("tasks", "shared-sum")["translations"]), {"en", "ru"})
+                self.assertNotIn("translations", tx.get("tasks", "cyclic-access"))
+                self.assertEqual(tx.get("tasks", "list-sum")["translations"], translated["translations"])
+                current = tx.world()
+                self.assertEqual(current["version"], 8)
+                self.assertEqual(current["snapshot"], world["snapshot"])
+                self.assertFalse(current["settings"]["resubmitPenaltyEnabled"])
+                self.assertEqual(current["settings"]["resubmitPenaltyPercent"], 5)
+
 
 if __name__ == "__main__":
     unittest.main()

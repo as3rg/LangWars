@@ -136,6 +136,7 @@ class Store:
             tx.execute("CREATE INDEX IF NOT EXISTS records_user_task ON records(kind,user_id,task_id,state)")
             tx.execute("CREATE INDEX IF NOT EXISTS records_task ON records(kind,task_id,state)")
             tx.execute("CREATE INDEX IF NOT EXISTS records_accepted ON records(kind,accepted)")
+            tx.execute("CREATE INDEX IF NOT EXISTS records_notification_feed ON records(kind,user_id,created DESC,id)")
             tx.execute("CREATE TABLE IF NOT EXISTS dependencies(name TEXT NOT NULL,submission_id TEXT NOT NULL,PRIMARY KEY(name,submission_id))")
             tx.execute("CREATE INDEX IF NOT EXISTS dependencies_submission ON dependencies(submission_id)")
             tx.execute("CREATE TABLE IF NOT EXISTS jobs(id TEXT PRIMARY KEY,user_id TEXT NOT NULL,status TEXT NOT NULL,created DOUBLE PRECISION NOT NULL,lease DOUBLE PRECISION NOT NULL DEFAULT 0,data TEXT NOT NULL)")
@@ -146,6 +147,31 @@ class Store:
                     tx.put("tasks", task["id"], task)
                 for news in initial_news():
                     tx.put("news", news["id"], news)
+            else:
+                world = tx.world()
+                from .ownership import remember_owners
+                previous_owners = dict(world.get("ownerUsers", {}))
+                remember_owners(tx, world)
+                defaults = initial_world()["settings"]
+                changed = previous_owners != world["ownerUsers"]
+                for key, value in defaults.items():
+                    if key not in world["settings"]:
+                        world["settings"][key] = value
+                        changed = True
+                if changed:
+                    world["version"] += 1
+                    tx.save_world(world)
+                for seeded in initial_tasks():
+                    task = tx.get("tasks", seeded["id"])
+                    if task and not task.get("translations") and all(task.get(key) == seeded.get(key) for key in ("title", "statement", "constraints", "examples", "tests")):
+                        task["translations"] = seeded["translations"]
+                        tx.put("tasks", task["id"], task)
+                if world.get("languageRevision") != "no-swap-2026-11":
+                    from .worker import schedule_rechecks
+                    world["languageRevision"] = "no-swap-2026-11"
+                    world["version"] += 1
+                    tx.save_world(world)
+                    schedule_rechecks(tx, {}, world, all_submissions=True)
 
     def claim(self):
         with self.transaction() as tx:

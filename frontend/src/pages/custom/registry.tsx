@@ -1,3 +1,4 @@
+import { t, useLocale } from '@/lib/i18n'
 import type { ComponentType } from 'react'
 import type { Task } from '@/api/types'
 import { EmptyState } from '@/components/ui'
@@ -10,11 +11,12 @@ const REGISTRY: Record<string, CustomPageComponent> = {
 }
 
 export function CustomTaskPage({ task, kind }: { task: Task; kind: string }) {
+  useLocale()
   const Component = REGISTRY[kind]
   if (!Component) {
     return (
-      <EmptyState title="Unknown custom page">
-        No frontend component is registered for kind <code className="mono">{kind}</code>.
+      <EmptyState title={t("Unknown custom page")}>
+        {t("No frontend component is registered for kind ")}<code className="mono">{kind}</code>.
       </EmptyState>
     )
   }
