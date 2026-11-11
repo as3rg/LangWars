@@ -10,7 +10,7 @@ from dataclasses import dataclass
 
 TYPES = ("int", "string", "list", "dict")
 OPERATIONS = ("eq", "cmp", "get", "set", "length", "contains", "empty", "push_back", "truthy", "concat", "cast")
-BUILTINS = {f"__builtin_{n}__" for n in ("eq", "lt", "get", "set", "length", "concat")}
+BUILTINS = {f"__builtin_{n}__" for n in ("eq", "lt", "get", "set", "length", "concat", "contains")}
 KEYWORDS = {"fn", "let", "return", "if", "else", "while", "comefrom", "and", "or", "not", "solution", "float", "function"}
 RESERVED = set(OPERATIONS) | set(TYPES) | BUILTINS | KEYWORDS
 LIMIT = 1_000_000
@@ -671,19 +671,35 @@ class Runtime:
             if chosen.get("builtin"):
                 adapted = list(args)
                 if adapted and kind(adapted[0]) != chosen["types"][0]: adapted[0] = self.cast(adapted[0], chosen["types"][0])
-                return self.builtin(name, adapted)
-            result = self.invoke(chosen, args)
-            if name in ("eq", "truthy", "contains", "empty") and (kind(result) != "int" or result not in (0, 1)):
-                raise Rejected(f"@{name} must return 0 or 1", "CONTRACT")
-            if name == "cmp" and (kind(result) != "int" or result not in (-1, 0, 1)):
-                raise Rejected("@cmp must return -1, 0 or 1", "CONTRACT")
-            if name == "length" and (kind(result) != "int" or result < 0): raise Rejected("@length must return a nonnegative int", "CONTRACT")
-            if name == "eq" and len(args) >= 2 and self.equal(args[0], args[1]) and result != 1:
-                raise Rejected("@eq violates reflexivity", "CONTRACT")
-            if name == "cmp" and len(args) >= 2 and self.equal(args[0], args[1]) and result != 0:
-                raise Rejected("@cmp violates reflexivity", "CONTRACT")
-            return result
-        return self.builtin(name, args)
+                if name == "concat":
+                    adapted = [self.cast(value, "string") for value in (adapted + [0, 0])[:2]]
+                result = self.builtin(name, adapted)
+                return self.checked_operation(name, adapted, result) if name in ("empty", "concat") else result
+            converted = [] if name == "concat" else None
+            result = self.invoke(chosen, args, converted_args=converted)
+            return self.checked_operation(name, converted if converted is not None else args, result)
+        result = self.builtin(name, args)
+        return self.checked_operation(name, args, result) if name in ("empty", "concat") else result
+
+    def checked_operation(self, name, args, result):
+        if name in ("eq", "truthy", "contains", "empty") and (kind(result) != "int" or result not in (0, 1)):
+            raise Rejected(f"@{name} must return 0 or 1", "CONTRACT")
+        if name == "cmp" and (kind(result) != "int" or result not in (-1, 0, 1)):
+            raise Rejected("@cmp must return -1, 0 or 1", "CONTRACT")
+        if name == "length" and (kind(result) != "int" or result < 0): raise Rejected("@length must return a nonnegative int", "CONTRACT")
+        if name == "empty" and result == 1 and self.operation("length", args[:1]) != 0:
+            raise Rejected("@empty violates the shared @length contract", "CONTRACT")
+        if name == "concat":
+            if kind(result) != "string": raise Rejected("@concat must return a string", "CONTRACT")
+            if len(args) >= 2 and all(isinstance(value, str) for value in args[:2]):
+                length = self.operation("length", [result])
+                if any(length < self.operation("length", [value]) for value in args[:2]):
+                    raise Rejected("@concat violates the shared @length contract", "CONTRACT")
+        if name == "eq" and len(args) >= 2 and self.equal(args[0], args[1]) and result != 1:
+            raise Rejected("@eq violates reflexivity", "CONTRACT")
+        if name == "cmp" and len(args) >= 2 and self.equal(args[0], args[1]) and result != 0:
+            raise Rejected("@cmp violates reflexivity", "CONTRACT")
+        return result
 
     def store(self, container, key, value):
         self.tick()
@@ -767,6 +783,16 @@ class Runtime:
             if self.contract not in OPERATIONS:
                 raise Rejected("Builtin functions may only be called inside stdlib override definitions", "BUILTIN_SCOPE")
             op = name[len("__builtin_"):-2]
+            if op == "contains":
+                if len(args) != 2 or kind(args[0]) not in ("string", "list", "dict"):
+                    raise Rejected("__builtin_contains__ requires a container and a value", "CONTRACT")
+                container, value = args
+                if isinstance(container, str):
+                    if not isinstance(value, str): raise Rejected("__builtin_contains__ requires a string needle for a string container", "CONTRACT")
+                    self.tick((len(container) + len(value)) // 32)
+                    return int(value in container)
+                entries = container if isinstance(container, list) else (key for key, _ in container.pairs)
+                return int(any(self.equal(item, value) for item in entries))
             if op == "eq" and len(args) >= 2 and kind(args[0]) != kind(args[1]): raise Rejected("__builtin_eq__ requires identical argument types", "CONTRACT")
             if op == "concat" and (len(args) < 2 or not all(isinstance(value, str) for value in args[:2])):
                 raise Rejected("__builtin_concat__ requires two string operands", "CONTRACT")
@@ -777,7 +803,7 @@ class Runtime:
         self.dependencies.add(name)
         return self.invoke(self.functions[name], args) if name in self.functions else self.read(name)
 
-    def invoke(self, function, args):
+    def invoke(self, function, args, converted_args=None):
         self.tick()
         self.calls += 1
         if self.calls > 64: raise Exhausted("Call depth limit exceeded")
@@ -787,6 +813,7 @@ class Runtime:
             for index, param in enumerate(function["params"]):
                 value = args[index] if index < len(args) else 0
                 if function["types"]: value = self.cast(value, function["types"][index])
+                if converted_args is not None: converted_args.append(value)
                 self.write(param, value, parameter=True)
             self.contract = function.get("annotation") if function.get("annotation") in OPERATIONS else None
             result, destination = self.execute(name)
@@ -808,7 +835,10 @@ class Runtime:
             stmt = code[index]
             op = stmt["op"]
             index += 1
-            if op in ("let", "assign"): self.write(stmt["name"], self.expr(stmt["expr"]))
+            if op in ("let", "assign"):
+                value = self.expr(stmt["expr"])
+                if op == "let" or stmt["name"] in self.vars or stmt["name"] in self.functions:
+                    self.write(stmt["name"], value)
             elif op == "return": return self.expr(stmt["expr"]), name
             elif op == "call": self.expr(stmt["expr"])
             elif op == "branch":
@@ -892,6 +922,26 @@ def validate_publication(snapshot, changes, options=None):
     except (RecursionError, MemoryError):
         return [diagnostic(Exhausted())]
 
+
+def contract_samples():
+    """A small corpus, freshly sampled in the sandbox without a public seed."""
+    rng = random.SystemRandom()
+    samples = {
+        "int": [0, 1, -1, 42, -42, LIMIT, -LIMIT, 2, 7, 193, -971, 800009],
+        "string": ["", "a", "b", "ab", "ba", "word", "\u2603"],
+        "list": [[], [0], [1], [0, 1], [1, 0], ["a"], [[0]]],
+        "dict": [{"$dict": []}, {"$dict": [[0, 1]]}, {"$dict": [[1, 0]]}],
+    }
+    integers = rng.sample(range(-LIMIT, LIMIT + 1), 4)
+    samples["int"].extend(integers)
+    for index in range(2):
+        text = "".join(rng.choice("abcdefghijklmnopqrstuvwxyz\u2603") for _ in range(rng.randrange(13)))
+        samples["string"].append(text)
+        samples["list"].append([integers[index], text, [integers[index + 2]]])
+        samples["dict"].append({"$dict": [[integers[index], text], [integers[index + 2], integers[index + 1]]]})
+    return samples
+
+
 def _validate_publication(snapshot, changes, options):
     for function in changes.get("functions", {}).values():
         check_builtin_scope(function["body"], function.get("annotation"))
@@ -903,13 +953,7 @@ def _validate_publication(snapshot, changes, options):
             if replacement and replacement.get("annotation") != annotation: raise Rejected(f"Replacement must retain @{annotation}", "CONTRACT")
     merged = merge_snapshot(snapshot, changes)
     for function in merged["functions"].values(): check_contract_syntax(function)
-    samples = {
-        "int": [0, 1, -1, 42, -42, LIMIT, -LIMIT, 2, 7, 193, -971, 800009],
-        "string": ["", "a", "b", "ab", "ba", "word", "\u2603"],
-        "list": [[], [0], [1], [0, 1], [1, 0], ["a"], [[0]]],
-        "dict": [{"$dict": []}, {"$dict": [[0, 1]]}, {"$dict": [[1, 0]]}],
-    }
-    samples["int"].extend(random.Random(0x1A6A25).sample(range(-LIMIT, LIMIT + 1), 4))
+    samples = contract_samples()
     # Published values and constants in the submitted functions are adversarial
     # probes too, so a simple hidden magic constant cannot evade the base suite.
     for value in list(changes.get("variables", {}).values())[:16]:
@@ -926,15 +970,36 @@ def _validate_publication(snapshot, changes, options):
     runtime.deadline = time.monotonic() + min(10, options.get("contract_timeout_ms", 5000) / 1000)
     base_vars, base_last = dict(runtime.vars), dict(runtime.last)
 
-    def call(function, args):
+    def call(function, args, operation=None):
         runtime.vars = dict(base_vars)
         runtime.last = dict(base_last)
-        return runtime.invoke(function, [decode(a) for a in args])
+        decoded = [decode(a) for a in args]
+        converted = [] if operation == "concat" else None
+        try:
+            result = runtime.invoke(function, decoded, converted_args=converted)
+            return runtime.checked_operation(operation, converted if converted is not None else decoded, result) if operation else result
+        except Rejected as error:
+            explain_composition(error)
 
     def fail(annotation, function):
         changed = set(changes.get("variables", {})) & function_dependencies(function)
         subject = f"Variable {sorted(changed)[0]} violates" if changed else "Override violates"
         raise Rejected(f"{subject} @{annotation} contract", "CONTRACT")
+
+    def explain_composition(error):
+        if error.code == "CONTRACT":
+            related = set(re.findall(r"@(empty|length|concat)\b", error.message))
+            for function in merged["functions"].values():
+                annotation = function.get("annotation")
+                if annotation in related and set(changes.get("variables", {})) & function_dependencies(function):
+                    fail(annotation, function)
+        raise error
+
+    def operation(name, args):
+        try:
+            return runtime.operation(name, args)
+        except Rejected as error:
+            explain_composition(error)
 
     for function in merged["functions"].values():
         annotation = function.get("annotation")
@@ -942,6 +1007,7 @@ def _validate_publication(snapshot, changes, options):
         domains = [function["types"][0]] if function["types"] else list(TYPES)
         for domain in domains:
             values = samples[domain]
+            truthy_witnesses = set()
             if annotation == "cast":
                 for a in values:
                     if kind(call(function, [a])) != function["cast_to"]: fail(annotation, function)
@@ -966,12 +1032,18 @@ def _validate_publication(snapshot, changes, options):
                             elif (results[i, j] <= 0 and results[j, k] <= 0 and results[i, k] > 0) or (results[i, j] < 0 and results[j, k] < 0 and results[i, k] >= 0):
                                 fail(annotation, function)
             else:
-                for a in values:
+                for sample_index, a in enumerate(values):
                     if annotation == "concat":
-                        if kind(call(function, [a, a])) != "string": fail(annotation, function)
+                        # Cover each definition, including candidates currently
+                        # shadowed by another override. A ring of unequal pairs
+                        # bounds the per-definition work; selected dispatch also
+                        # receives the full bounded string-pair corpus below.
+                        b = values[(sample_index + 1) % len(values)]
+                        if kind(call(function, [a, b], operation="concat")) != "string": fail(annotation, function)
                     elif annotation in ("truthy", "empty", "contains"):
-                        result = call(function, [a, 0] if annotation == "contains" else [a])
+                        result = call(function, [a, 0] if annotation == "contains" else [a], operation="empty" if annotation == "empty" else None)
                         if kind(result) != "int" or result not in (0, 1): fail(annotation, function)
+                        if annotation == "truthy": truthy_witnesses.add(result)
                     elif annotation == "length":
                         result = call(function, [a])
                         if kind(result) != "int" or result < 0: fail(annotation, function)
@@ -985,10 +1057,33 @@ def _validate_publication(snapshot, changes, options):
                         runtime.vars = dict(base_vars)
                         container = decode(a)
                         before = len(container if isinstance(container, list) else container.pairs)
-                        runtime.invoke(function, [container, 0, 42] if annotation == "set" else [container, 42])
+                        if annotation == "set" and not before:
+                            continue  # Only existing keys/valid positions have a select/store invariant.
+                        key = container.pairs[0][0] if isinstance(container, Dictionary) else 0
+                        runtime.invoke(function, [container, key, 42] if annotation == "set" else [container, 42])
                         if annotation == "set":
-                            if not builtin_equal(runtime.builtin("get", [container, 0]), 42): fail(annotation, function)
+                            if not builtin_equal(runtime.builtin("get", [container, key]), 42): fail(annotation, function)
                         elif not isinstance(container, list) or len(container) != before + 1 or not any(builtin_equal(v, 42) for v in container): fail(annotation, function)
+            if annotation == "truthy" and truthy_witnesses != {0, 1}:
+                fail(annotation, function)
+    # These constraints compose shared operations. Check defaults as well as
+    # user definitions: a changed length can break an untouched empty/concat.
+    annotations = {f.get("annotation") for f in merged["functions"].values()}
+    if annotations & {"length", "empty"}:
+        for domain in ("string", "list", "dict"):
+            for encoded in samples[domain]:
+                runtime.vars, runtime.last = dict(base_vars), dict(base_last)
+                container = decode(encoded)
+                length = operation("length", [container])
+                empty = operation("empty", [container])
+                if kind(length) != "int" or length < 0 or empty == 1 and length != 0:
+                    raise Rejected("Overrides violate the @empty/@length contract", "CONTRACT")
+    if annotations & {"length", "concat"}:
+        for left in samples["string"]:
+            for right in samples["string"]:
+                runtime.vars, runtime.last = dict(base_vars), dict(base_last)
+                # checked_operation performs the shared length comparisons.
+                operation("concat", [left, right])
     # Select/store must compose across separately overridden operations, not only
     # pass tests of each definition in isolation. Probe only valid existing keys.
     collection_annotations = {f.get("annotation") for f in merged["functions"].values()} & {"get", "set", "push_back"}

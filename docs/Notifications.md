@@ -94,9 +94,12 @@ submit structured accepted/broken events, forge actors, or target another user.
 The frontend does not post server-generated popups back to the API. Immediate
 submission notifications and feed delivery share the same deterministic ID.
 
-The language revision marker schedules one read-only sweep of existing accepted
-solutions after the removal of `swap()`, preserving the database and history.
-Old solutions using removed operations are not left green indefinitely.
+The language revision marker schedules one read-only sweep of active accepted
+solutions after semantic updates, including the removal of `swap()`, unknown-name
+assignment becoming a no-op, and the revised stdlib guards. Database and history
+are preserved. Publication-only sampled conditions (such as truthy reachability)
+are checked on future publications; existing overrides are not automatically
+deleted and may need an administrator restore when they violate new contracts.
 Stop all workers, including workers on remote VPN hosts, before starting the new
 API release and this sweep. Update every worker to the same interpreter release
 before resuming processing; mixing interpreter revisions would invalidate both

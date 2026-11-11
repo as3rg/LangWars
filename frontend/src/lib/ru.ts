@@ -585,5 +585,7 @@ export const ru: Record<string, string> = {
   "Percentile exceeds the measurement histogram; shown as a lower bound.": "Перцентиль выходит за диапазон измерения; показана нижняя граница.",
   "{count} min": "{count} мин",
   "{count} h": "{count} ч",
-  "{count} d": "{count} д"
+  "{count} d": "{count} д",
+  "stdlib override bodies only": "только внутри переопределений стандартных операций",
+  "Original membership test for strings, lists and dictionaries. Available only inside stdlib overrides.": "Исходная проверка вхождения для строк, списков и словарей. Доступна только внутри переопределений стандартных операций."
 }

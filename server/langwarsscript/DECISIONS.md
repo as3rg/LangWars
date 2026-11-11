@@ -17,7 +17,11 @@ The following choices resolve gaps or contradictions in the working specificatio
 - Binary operators associate to the left. Equality expressions use `=`; `==`
   is a syntax error, including where examples in the spec accidentally use it.
   Assignment is recognized only as a statement. Reading an unknown name yields
-  `0`; assigning an unknown name establishes that name. Calling a nonfunction
+  `0`; assigning an unknown name is a NOP, as clarified in §7.1. Its right-hand
+  expression is still evaluated normally, including function calls and mutations;
+  target existence is checked after those effects. `let` creates a name, and
+  assignment to an existing variable/function preserves its normal behavior.
+  Calling a nonfunction
   returns its value after evaluating its argument expressions.
 - `float` literals/types and `function` as a declared parameter/cast type are
   rejected. Function names used as values resolve to their last result, initially
@@ -119,14 +123,47 @@ Publication and contract checks
   with those names are not reinstalled. Administrative restoration of a removed
   stdlib override is respected when the old submission is rechecked.
 - All inherited and new annotated definitions receive static checks and a bounded
-  deterministic probe suite, including seeded pseudorandom integers, boundary values,
-  literals from published definitions, and newly published values. Equality probes
+  probe suite, including fixed boundary values, literals from published definitions,
+  and newly published values. Each validation also draws four fresh integers and
+  two short strings/lists/dictionaries using OS-backed `SystemRandom`, without a
+  public or player-controlled seed. The random additions are deliberately small
+  and each domain remains capped at 20 samples, bounding pair/triple work. Equality probes
   check reflexivity, transitivity and result domain; comparison probes check result
   domain, reflexivity, equality compatibility and weak/strict transitivity.
   Collection probes check valid-key get coverage, physical set and push mutations,
   and composition of separately overridden get/set operations. The proposed
   nondegeneracy condition on equality is deliberately not implemented: constant-true
   equality can be legal, as the spec explicitly allows.
+  Random dictionary probes use homogeneous integer keys; mixed-key casting in
+  older builtin get/set/length implementations is not exhaustively checked or
+  semantically changed by this revision. Existing-key select/store probes use a
+  real key or valid index and skip empty containers, whose access invariants are UB.
+- The new collection constraints are composed through the currently selected
+  shared operations: `length >= 0`, `empty(a) = 1` implies `length(a) = 0`, and
+  `length(concat(a,b))` must be at least both operand lengths. Empty/length probes
+  cover all collection domains; concat probes include unequal string pairs, not
+  merely `concat(a,a)`. Untouched defaults also participate, since an overridden
+  length can invalidate a default empty/concat. Runtime guards enforce the empty
+  implication and concat bound on actual calls, including default operations;
+  builtin escape calls retain their original behavior. Existing equality and
+  comparison defaults are not re-compared solely for these new checks.
+  Every annotated empty/concat definition receives relation probes even when
+  currently shadowed: concat uses a bounded ring of unequal pairs per definition,
+  while selected shared dispatch receives the full bounded string-pair matrix.
+  Concat's runtime guard uses the already converted string operands, without
+  re-running potentially stateful entry casts. Nonstandard overrides with a
+  nonstring argument domain still receive result-type and sampled checks, but
+  the runtime length comparison is limited to calls with two converted strings.
+- The temporal `truthy` reachability formula is approximated by observing both
+  return values, 0 and 1, in the bounded input corpus for each annotated definition
+  and applicable first-argument domain, holding the candidate world's globals
+  fixed. We do not search arbitrary program states or prove temporal reachability.
+  A valid operator with witnesses outside the corpus can be rejected; conversely,
+  an almost-correct operator can pass while differing elsewhere. Inverting or
+  otherwise changing the builtin truth table is permitted if both witnesses are
+  found. Constant truthy implementations are rejected; constant-true equality
+  remains permitted. Ordinary read-only rechecks do not repeat this existential
+  search; a legacy invalid override may require administrative restoration.
 - Builtin escapes are callable only inside stdlib-annotated definitions, including
   `@cast`. New source is checked statically, including unused ordinary helpers,
   unreachable branches and global initializers; `@solution` grants no builtin access.
@@ -134,7 +171,7 @@ Publication and contract checks
   legacy ordinary functions do not block unrelated submissions, but cannot execute
   builtin calls. New publications are checked independently of source compilation.
 - Contract bodies permit free-form conditionals/loops/arithmetic but only explicit
-  calls to the six specified builtin escapes. `__builtin_concat__` creates the
+  calls to the builtin escapes. `__builtin_concat__` creates the
   normal bounded concatenation of two string operands and bypasses `@concat`.
   Unlike ordinary `concat`, the builtin does not implicitly convert nonstrings:
   it reports a contract diagnostic for invalid operand types. Explicit casts and implicit casts
@@ -142,9 +179,23 @@ Publication and contract checks
   builtin equality argument types, contract annotation removal, and `comefrom`
   crossings are rejected. Runtime guards also check scalar result domains and
   equality/comparison reflexivity for the actual encountered values.
+- `__builtin_contains__(container, value)` is added ahead of the specification's
+  builtin table, as explicitly requested by the platform architects. It requires
+  exactly two arguments and a string/list/dictionary container. Strings require
+  a string needle (no implicit cast inside a contract); lists and dictionary keys
+  use bounded recursive builtin by-value, typed equality. Dictionary values are
+  not searched. It bypasses both `@contains` and `@eq`, performs no mutation and
+  remains available inside stdlib definitions even when contains overrides are
+  disabled. Its static and runtime scope boundary is the same as every escape.
+- Although §8.3.5 now forbids overriding contains, the platform owner's explicit
+  policy keeps `@contains` as an administrator opt-in. New worlds disable it by
+  default. A one-time upgrade removes it only when a world's permitted override
+  set exactly matches the legacy full default; custom sets are preserved. Later
+  administrative re-enabling survives restarts. Existing contains definitions
+  remain published until overwritten/restored, as with other permission changes.
 - Finite tests **cannot prove universal invariants of arbitrary free-form programs**.
   The spec permits test-based checking; this implementation combines static
-  restrictions, deterministic/adversarial probes and runtime guards. A sufficiently
+  restrictions, fixed/adversarial/fresh random probes and runtime guards. A sufficiently
   specialized implementation may evade sampled transitivity checks. Resource budgets
   may also reject unusually expensive valid definitions. This is a practical limit,
   not a claim of formal verification. A future formal subset could offer stronger

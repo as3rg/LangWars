@@ -130,7 +130,7 @@ class Store:
             conn.close()
 
     def initialize(self):
-        from .seed import initial_world, initial_tasks, initial_news
+        from .seed import initial_world, initial_tasks, initial_news, OPERATIONS, LANGUAGE_REVISION, OVERRIDE_DEFAULTS_REVISION
         with self.transaction() as tx:
             if self.postgres:
                 tx.execute("SELECT pg_advisory_xact_lock(82317102)")
@@ -188,6 +188,13 @@ class Store:
                     if key not in world["settings"]:
                         world["settings"][key] = value
                         changed = True
+                if world.get("overrideDefaultsRevision") != OVERRIDE_DEFAULTS_REVISION:
+                    # The exact legacy factory policy follows the safer new
+                    # default. Preserve custom policies and subsequent opt-ins.
+                    if set(world["settings"]["permittedOverrides"]) == set(OPERATIONS):
+                        world["settings"]["permittedOverrides"] = list(defaults["permittedOverrides"])
+                    world["overrideDefaultsRevision"] = OVERRIDE_DEFAULTS_REVISION
+                    changed = True
                 if changed:
                     world["version"] += 1
                     tx.save_world(world)
@@ -196,9 +203,9 @@ class Store:
                     if task and not task.get("translations") and all(task.get(key) == seeded.get(key) for key in ("title", "statement", "constraints", "examples", "tests")):
                         task["translations"] = seeded["translations"]
                         tx.put("tasks", task["id"], task)
-                if world.get("languageRevision") != "no-swap-2026-11":
+                if world.get("languageRevision") != LANGUAGE_REVISION:
                     from .worker import schedule_rechecks
-                    world["languageRevision"] = "no-swap-2026-11"
+                    world["languageRevision"] = LANGUAGE_REVISION
                     world["version"] += 1
                     tx.save_world(world)
                     schedule_rechecks(tx, {}, world, all_submissions=True)

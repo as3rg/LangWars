@@ -163,6 +163,22 @@ Resource exhaustion produces a rejected verdict; language-specific cases such as
 
 Contract checking combines restricted contract bodies and bounded invariant probes. As permitted by the spec, this is testing of free-form functions, not a proof for every possible input. Administrators can disable individual override operations. Avoid claiming arbitrary hostile overrides are mathematically verified.
 
+The updated stdlib checks add fresh unpredictable samples to the fixed boundary
+corpus, enforce the shared `empty`/`length` and `concat`/`length` conditions, and
+require sampled witnesses for both results of each applicable `truthy` override.
+`__builtin_contains__(container, value)` is available inside stdlib definitions
+only; it bypasses user membership and equality overrides. See
+[`DECISIONS.md`](../server/langwarsscript/DECISIONS.md) for the bounded checking
+policy and deliberate compatibility choices.
+
+`contains` overrides are disabled in new default policies. On upgrade, the exact
+old factory policy also follows that default once; custom policies are retained.
+Administrators can opt back in, and later restarts preserve that choice. Existing
+published overrides remain until replaced or restored. If an old operator fails
+new contracts, use the administrator restore action, possibly for related
+operations together. The language revision queues a one-time read-only sweep of
+active solutions; it does not delete historical submissions or definitions.
+
 The 50–150 concurrent-user target is an architectural sizing goal. CPU-heavy submissions, world size, and rejudge fan-out determine actual throughput. Benchmark representative solutions on your hardware, use queue capacity and cooldown controls to balance demand, and track worker restarts and PostgreSQL latency.
 
 For a bounded read-only HTTP check, run `python scripts/load_probe.py --clients 150 --requests 300`. This probes public API reads, not 150 simultaneous interpreter executions. The configured workers and queue deliberately limit concurrent execution independently of connected browsers.

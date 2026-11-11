@@ -1,11 +1,12 @@
 ﻿import { StreamLanguage, type StreamParser } from '@codemirror/language'
 import { snippet, type Completion, type CompletionContext, type CompletionResult } from '@codemirror/autocomplete'
 import type { LangVersion } from '@/lwlang'
+import { t } from '@/lib/i18n'
 
 const KEYWORDS = ['let', 'fn', 'return', 'if', 'else', 'while', 'comefrom', 'and', 'or', 'not']
 const TYPES = ['int', 'string', 'list', 'dict']
 const BUILTINS = ['eq', 'cmp', 'get', 'set', 'length', 'empty', 'contains', 'push_back', 'truthy', 'concat', ...TYPES]
-const STDLIB_ESCAPES = ['__builtin_eq__', '__builtin_lt__', '__builtin_get__', '__builtin_set__', '__builtin_length__', '__builtin_concat__']
+const STDLIB_ESCAPES = ['__builtin_eq__', '__builtin_lt__', '__builtin_get__', '__builtin_set__', '__builtin_length__', '__builtin_concat__', '__builtin_contains__']
 const ANNOTATIONS = ['solution', 'eq', 'cmp', 'cast', 'get', 'set', 'length', 'empty', 'contains', 'push_back', 'truthy', 'concat']
 interface LwState { inBlockComment: boolean }
 export function createLwlangLanguage(_version: LangVersion, _extraKeywords: string[] = []) {
@@ -43,7 +44,10 @@ export function createCompletions(_version: LangVersion, _extraKeywords: string[
     const word = context.matchBefore(/@?[A-Za-z_][A-Za-z_]*/)
     if (!word || (word.from === word.to && !context.explicit)) return null
     const choices = word.text.startsWith('__builtin_')
-      ? [...options, ...STDLIB_ESCAPES.map((label) => ({ label, type: 'function', detail: 'stdlib override bodies only' }))]
+      ? [...options, ...STDLIB_ESCAPES.map((label) => ({ label, type: 'function',
+        detail: label === '__builtin_contains__' ? '(container, value) → int' : t('stdlib override bodies only'),
+        info: label === '__builtin_contains__' ? t('Original membership test for strings, lists and dictionaries. Available only inside stdlib overrides.') : undefined,
+      }))]
       : options
     return { from: word.from, options: choices, validFor: /^@?[A-Za-z_]*$/ }
   }
