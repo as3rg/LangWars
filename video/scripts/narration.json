@@ -1,0 +1,38 @@
+{
+  "en": {
+    "voice": "en-US-AriaNeural",
+    "nekoVoice": "en-US-AnaNeural",
+    "rate": "+8%",
+    "lines": [
+      { "id": "s1", "text": "Every programmer starts with a simple dream: add two numbers. And every platform finds a new way to ruin it. Welcome to LangWars." },
+      { "id": "s1-neko", "text": "Nya.", "neko": true },
+      { "id": "s2", "text": "Here, your solution does not live in a lonely little box. Accepted code publishes straight into one shared world, where every variable and every function is visible, editable, and fair game. It is collaboration. With teeth." },
+      { "id": "s3", "text": "Other players can rename your parameters, rewrite your helpers, and quietly break your beautiful solution. Then the worker rechecks everything, and your score just... evaporates. The culprit? Anonymous. It is always anonymous." },
+      { "id": "s3-neko", "text": "It wasn't me, nya!", "neko": true },
+      { "id": "s4", "text": "LWLang keeps things spicy. Integers wrap at plus or minus one million. Indices loop around the list. Strings count Unicode code points, emoji included. One million plus one? Minus nine hundred ninety nine thousand nine hundred ninety nine. Obviously." },
+      { "id": "s4-neko", "text": "Obviously, nya.", "neko": true },
+      { "id": "s5", "text": "When the world changes, the recheck begins. Workers sweep every affected submission, recalculate the scores, and rewrite the leaderboard live. No stale results. No mercy." },
+      { "id": "s6", "text": "Your score is simple: distinct tasks that are still passing, right now. Rankings, events, invitations, anonymous breakers, all built in. Bring your friends. Bring your enemies. Especially your enemies." },
+      { "id": "s7", "text": "LangWars. Nine lives. One shared world. Break something beautiful today." },
+      { "id": "s7-neko", "text": "Nya!", "neko": true }
+    ]
+  },
+  "ru": {
+    "voice": "ru-RU-SvetlanaNeural",
+    "nekoVoice": "ru-RU-SvetlanaNeural",
+    "rate": "+8%",
+    "lines": [
+      { "id": "s1", "text": "Каждый программист начинает с простой мечты: сложить два числа. И каждая платформа находит новый способ это испортить. Добро пожаловать в LangWars." },
+      { "id": "s1-neko", "text": "Ня.", "neko": true },
+      { "id": "s2", "text": "Здесь ваше решение не живёт в уютной коробочке. Принятый код публикуется в общий мир, где каждая переменная и каждая функция видимы, изменяемы и совершенно беззащитны. Это сотрудничество. С зубами." },
+      { "id": "s3", "text": "Другие игроки могут переименовать ваши параметры, переписать функции и тихо сломать ваше прекрасное решение. Затем воркер всё перепроверит, и ваш счёт просто... испарится. А виновник? Аноним. Он всегда аноним." },
+      { "id": "s3-neko", "text": "Это была не я, ня!", "neko": true },
+      { "id": "s4", "text": "LWLang не даст заскучать. Целые числа заворачиваются на плюс-минус миллионе. Индексы ходят по кругу. Строки считаются в символах Юникода, эмодзи тоже. Миллион плюс один? Минус девятьсот девяносто девять тысяч девятьсот девяносто девять. Очевидно же." },
+      { "id": "s4-neko", "text": "Очевидно, ня.", "neko": true },
+      { "id": "s5", "text": "Когда мир меняется, начинается перепроверка. Воркеры проходят по всем затронутым решениям, пересчитывают очки и переписывают таблицу лидеров вживую. Никаких устаревших результатов. Никакой пощады." },
+      { "id": "s6", "text": "Ваш счёт прост: уникальные задачи, которые проходят прямо сейчас. Рейтинги, события, приглашения, анонимные ломатели — всё встроено. Зовите друзей. Зовите врагов. Особенно врагов." },
+      { "id": "s7", "text": "LangWars. Девять жизней. Один общий мир. Сломайте что-нибудь прекрасное сегодня." },
+      { "id": "s7-neko", "text": "Ня!", "neko": true }
+    ]
+  }
+}
