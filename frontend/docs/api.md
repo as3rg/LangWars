@@ -73,7 +73,7 @@ Detail adds: `code, diagnostics[], tests[], stdout?, previousId?`
 | POST | `/tasks/{id}/run` | user | body `{code, languageVersion}` → `RunResult` (example tests only, synchronous-ish) |
 | POST | `/tasks/{id}/submit` | user | body `{code, languageVersion}` → `{submission, ratingUpdate}` |
 | GET | `/tasks/{id}/submissions?scope=mine\|all` | user | summaries only, newest first |
-| GET | `/tasks/{id}/insights` | user | extension data for custom pages (shape: `{kind, data}`) |
+| GET | `/tasks/{id}/insights` | public | task statistics and code-free recent submission summaries (shape: `{kind, data}`); never includes source, hidden tests, or private submission details |
 | POST | `/admin/tasks` | admin | create |
 | PATCH | `/admin/tasks/{id}` | admin | update incl. addonPacks/languageVersion |
 | DELETE | `/admin/tasks/{id}` | admin | |

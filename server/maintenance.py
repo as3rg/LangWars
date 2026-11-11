@@ -24,6 +24,8 @@ def cleanup(store, job_days=7, rejected_days=30, audit_days=180, recheck_days=90
         for row in tx.execute("SELECT id FROM records WHERE kind='submissions' AND accepted=0 AND created<?", (cutoff,)).fetchall():
             tx.delete("submissions", row[0])
             counts["rejectedSubmissions"] += 1
+        from .submission_history import cleanup as cleanup_history
+        counts["submissionHistory"] = cleanup_history(tx)
         cutoff = (datetime.now(timezone.utc) - timedelta(days=audit_days)).isoformat().replace("+00:00", "Z")
         counts["audit"] = tx.execute("DELETE FROM records WHERE kind='audit' AND created<?", (cutoff,)).rowcount
         from .recheck_history import cleanup as cleanup_rechecks

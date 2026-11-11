@@ -8,6 +8,7 @@ import re
 import secrets
 import time
 from contextlib import asynccontextmanager
+from urllib.parse import unquote, urlsplit
 
 from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, Response
@@ -46,6 +47,23 @@ def clean_text(value, field, settings, minimum=0, maximum=10000):
     if prohibited(value, settings["denyWords"]):
         fail(422, "DENIED_WORD", f"{field} contains a word blocked by the platform")
     return value
+
+
+def internal_news_path(value):
+    if not isinstance(value, str) or not 1 <= len(value) <= 256:
+        return False
+    # Reject browser-normalized network paths and encoded separators, including
+    # nested encodings that could acquire a different meaning after decoding.
+    while True:
+        if not value.startswith("/") or value.startswith("//") or re.search(r"[\x00-\x20\x7f\\]|%(?:2f|5c)", value, re.I):
+            return False
+        parsed = urlsplit(value)
+        if parsed.scheme or parsed.netloc:
+            return False
+        decoded = unquote(value)
+        if decoded == value:
+            return True
+        value = decoded
 
 
 def new_user(username, password, settings, role="user", encoded_password=None):
@@ -183,13 +201,15 @@ def create_app(database_url=None):
         ttl = max(1, min(720, int(os.environ.get("SESSION_TTL_HOURS", "168")))) * 3600
         return {"token": issue_session(tx, user, ttl), "user": public_user(user, admin=user["role"] == "admin")}
 
-    def auth_throttle(tx, request, username):
-        # Per-client and per-account budgets; no proxy headers are trusted.
+    def auth_throttle(tx, request, username, action="login"):
+        # Registration cannot spend an existing account's login budget.
+        # No proxy headers are trusted.
         now = time.time()
-        for key in ["ip:" + (request.client.host if request.client else "unknown"), "name:" + username.casefold()]:
+        for key, limit in [(action + ":ip:" + (request.client.host if request.client else "unknown"), 600),
+                           (action + ":name:" + username.casefold(), 15)]:
             hashed = token_hash(key)
             attempts = [t for t in (tx.get("throttle", hashed) or []) if t > now - 60]
-            if len(attempts) >= (600 if key.startswith("ip:") else 15):
+            if len(attempts) >= limit:
                 return False
             tx.put("throttle", hashed, attempts + [now])
         return True
@@ -250,12 +270,19 @@ def create_app(database_url=None):
         else:
             fail(422, "BAD_BODY", "Supply notification ids or all:true")
         with store.transaction() as tx:
-            tx.world()
             user = current(request, tx)
-            for item in tx.list("notifications", user_id=user["id"]):
-                if identifiers is None or item["id"] in identifiers:
-                    item["read"] = True
-                    tx.put("notifications", item["id"], item)
+            # Use a separate account-scoped advisory lock: user-row locks would
+            # invert the worker's notification -> rating-update lock order.
+            if tx.postgres:
+                tx.execute("SELECT pg_advisory_xact_lock(82317103,?)", (int(token_hash(user["id"])[:8], 16) & 0x7fffffff,))
+            key = "notification_reads:" + user["id"]
+            now = time.time()
+            attempts = [entry for entry in (tx.get("throttle", key) or []) if entry > now - 60]
+            if len(attempts) >= 120:
+                fail(429, "RATE_LIMIT", "Too many mark-read requests", {"Retry-After": "60"})
+            tx.put("throttle", key, attempts + [now])
+            from .notifications import mark_read
+            mark_read(tx, user["id"], identifiers)
         return Response(status_code=204)
 
     @app.post("/api/auth/login")
@@ -324,12 +351,12 @@ def create_app(database_url=None):
             fail(422, "BAD_BODY", "Invalid username")
         with store.transaction() as tx:
             tx.world()
-            allowed = auth_throttle(tx, request, username)
+            # Reject existing names and unusable invitations before spending
+            # a registration budget or password-hashing CPU.
+            registration_access(tx, username, code)
+            allowed = auth_throttle(tx, request, username, "register")
         if not allowed:
             fail(429, "RATE_LIMIT", "Too many registration attempts", {"Retry-After": "60"})
-        # Reject unusable invitations before spending password-hashing CPU.
-        with store.transaction() as tx:
-            registration_access(tx, username, code)
         encoded_password = password_hash(password)
         with store.transaction() as tx:
             world = tx.world()
@@ -410,6 +437,10 @@ def create_app(database_url=None):
             mine = tx.execute("SELECT COUNT(*) FROM jobs WHERE user_id=? AND status IN ('queued','running') AND id NOT LIKE 'recheck_%'", (user["id"],)).fetchone()[0]
             if pending >= settings["maxQueuedJobs"] or mine >= 2:
                 fail(429, "QUEUE_FULL", "The queue is full. Try again shortly.", {"Retry-After": "5"})
+            from .submission_history import capacity_available as history_capacity, prune as prune_history
+            prune_history(tx, user["id"])
+            if not history_capacity(tx, user["id"], mode):
+                fail(429, "HISTORY_QUOTA", "Your execution history is full; wait for pending comparisons or ask an administrator for cleanup", {"Retry-After": "60"})
             penalty = resubmit_penalty(tx, user, task, settings) if mode == "submit" else {"points": 0}
             if penalty["points"] and (body.get("acceptResubmitPenalty") is not True or type(body.get("expectedPenaltyPoints")) is not int or body["expectedPenaltyPoints"] != penalty["points"]):
                 raise HTTPException(409, detail={"code": "PENALTY_CONFIRMATION_REQUIRED", "message": f"Submitting this solved task costs {penalty['points']} points", "points": penalty["points"]})
@@ -947,7 +978,7 @@ def create_app(database_url=None):
             cta = body["cta"]
             if cta is None:
                 item.pop("cta", None)
-            elif isinstance(cta, dict) and isinstance(cta.get("href"), str) and (cta["href"].startswith("/") and not cta["href"].startswith("//")):
+            elif isinstance(cta, dict) and internal_news_path(cta.get("href")):
                 item["cta"] = {"label": text(cta.get("label"), "cta label", 1, 80), "href": text(cta["href"], "cta href", 1, 256)}
             else:
                 fail(422, "BAD_BODY", "CTA must link to a path on this site")
