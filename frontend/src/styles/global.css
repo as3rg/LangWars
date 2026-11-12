@@ -124,7 +124,8 @@ pre {
 .scanlines::after {
   content: '';
   position: fixed;
-  inset: 0;
+  /* One extra repeat keeps the viewport covered while the texture moves. */
+  inset: -4px 0 0;
   pointer-events: none;
   z-index: 60;
   background: repeating-linear-gradient(
@@ -140,7 +141,8 @@ pre {
 }
 
 @keyframes crt-scanlines {
-  to { background-position: 0 4px; }
+  /* Moving the texture avoids repainting a full-screen gradient every frame. */
+  to { transform: translateY(4px); }
 }
 
 .scanlines::before {
