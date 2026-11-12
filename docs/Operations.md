@@ -220,7 +220,41 @@ Run and submission admission also applies account history bounds without waiting
 
 Admission pauses at 64 MiB or 1,000 combined submission/job records per account, including reservations for in-flight results: 20 MiB per submit and 10 MiB per run. These reservations include duplicated submission results in completed jobs. Protected state can exceed the rolling target; the server rejects further admissions rather than deleting active solutions or pending comparison inputs. Retry after comparisons finish or ask an administrator to review the account's retained state.
 
-`defaultTaskNameLimit` sets the cumulative distinct-name budget per player/task (30 by default). A task's nullable `namePublishLimit` and `coreOverrideLimit` inherit global limits; explicit values override them. Custom identifiers include function names, variables, parameters and references, consistently with the account budget. Only accepted publications spend names; old rechecks bypass later tightened publication limits. The task workspace shows account and task usage alongside the effective limits.
+`defaultTaskNameLimit` sets the distinct-name limit for each publication (30 by default). A task's nullable `namePublishLimit` and `coreOverrideLimit` inherit global limits; explicit values override them. The publication limit counts names actually written as variables, function definitions or remembered function results, once per name. Parameters alone and read-only references do not publish. Earlier submissions do not consume this task limit. The account-wide name budget still accumulates all distinct custom identifiers in accepted sources, including parameters and references. Old rechecks bypass later tightened publication limits. The task workspace shows account usage and the current accepted submission's publication count alongside the effective limits.
+
+Tasks have three visibility policies: `visible` (default), `hidden`, and `event`.
+Event visibility uses `eventId`, referring to a news item of category `event`;
+the event must be visible and the current UTC time must fall inside its optional
+`startsAt`/`endsAt` interval (start inclusive, end exclusive). A missing or deleted
+event hides its tasks. Administrators retain access. Read-time filtering covers
+task routes, histories, notifications and rating projections. Queued player jobs
+check visibility again before publishing; previously accepted solutions can still
+be rechecked without republishing.
+
+A task's nullable `maxNameLength` overrides the platform maximum (1–128 characters).
+Its nullable `allowedKeywords` restricts executable language keywords: `let`,
+`return`, `if`, `else`, `while`, `comefrom`, `and`, `or`, `not`. `null` allows all;
+an empty list allows none of these. Function/annotation boilerplate remains
+available. Restrictions apply both to submitted source and to inherited code
+entered during execution. To allow only `comefrom` for control flow, retain
+`let`/`return` and any desired logical keywords, omitting `if`/`else`/`while`.
+
+`datacenterFire` enables the optional Datacenter fire modifier (default off).
+While a signed-in player's task editor has focus in a visible browser window,
+the client waits a random 30–90 seconds, then deletes one randomly chosen
+nonempty physical line, including its line break, and schedules the next fire.
+The timer pauses when the editor loses focus or the page becomes hidden and
+starts a fresh delay when editing resumes. The edit follows the normal
+CodeMirror change, undo and draft-saving path. Empty drafts are left alone.
+This is an editor challenge: runs, submissions, contract probes, rechecks and
+causal comparisons execute the submitted source normally. A fire after clicking
+Run or Submit changes only the current draft, not the source already queued.
+
+For Choose your button, use `allowedWords: ["red", "blue"]`, `namePublishLimit: 1`
+and `maxNameLength: 4`. For example, `@solution fn red(blue){return blue;}`
+publishes just `red`. To require one dictionary word rather than a compound name,
+the length limit also rules out `red_blue`. These are task settings; no challenge
+tasks are automatically added to an existing installation.
 
 Player publications may retain up to 512 KiB of serialized variables, function definitions, and last results attributed to that account in the shared snapshot. Changed last results count against their publisher, including calls to another player's functions; definition authorship stays unchanged. Legacy accounts already above this limit may replace or shrink definitions without increasing their footprint. Administrator world edits are exempt. The global 4 MiB snapshot cap remains; growth by multiple accounts or administrators can still require administrator cleanup.
 

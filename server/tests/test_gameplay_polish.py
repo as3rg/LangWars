@@ -47,7 +47,7 @@ class GameplayPolishTests(unittest.TestCase):
         self.drain()
         self.assertTrue(self.client.get("/api/tasks/" + task, headers=headers).json()["solved"])
 
-    def test_task_name_budget_cumulative_and_inherited_core_override(self):
+    def test_task_name_budget_per_publication_and_inherited_core_override(self):
         self.settings(submitCooldownSeconds=0, defaultTaskNameLimit=2, defaultCoreOverrideLimit=0)
         _, headers = self.register()
         task = self.create_task("budget-task", 1)
@@ -56,8 +56,10 @@ class GameplayPolishTests(unittest.TestCase):
         first = self.submit_and_work(task, "@solution fn solve(){let first=1;return first;}", headers)
         self.assertEqual(first["status"], "OK", first)
         second = self.submit_and_work(task, "@solution fn solve(){let second=1;return second;}", headers)
-        self.assertEqual(second["status"], "CE", second)
-        self.assertEqual(second["diagnostics"][0]["code"], "TASK_NAME_LIMIT")
+        self.assertEqual(second["status"], "OK", second)
+        excessive = self.submit_and_work(task, "@solution fn solve(){let first=1;let second=1;return first;}", headers)
+        self.assertEqual(excessive["status"], "CE", excessive)
+        self.assertEqual(excessive["diagnostics"][0]["code"], "TASK_NAME_LIMIT")
         detail = self.client.get("/api/tasks/" + task, headers=headers).json()
         self.assertEqual(detail["nameBudget"]["taskUsed"], 2)
         self.assertEqual(detail["nameBudget"]["taskLimit"], 2)

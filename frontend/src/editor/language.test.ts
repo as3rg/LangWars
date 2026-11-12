@@ -33,6 +33,7 @@ describe('standard-operation completion', () => {
       const completion = result?.options.find((option) => option.label === '__builtin_contains__')
       expect(completion?.detail).toBe('(container, value) → int')
       expect(completion?.info).toBe(description)
+      expect(result?.options.find((option) => option.label === '@contains')?.detail).toBe(locale === 'en' ? 'Disabled by default' : 'По умолчанию отключено')
     } finally {
       useLocale.setState({ locale: before })
     }

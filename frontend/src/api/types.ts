@@ -33,6 +33,7 @@ export interface NewsItem {
   body: string
   category: NewsCategory
   pinned: boolean
+  visible?: boolean
   accent: Accent
   cta?: { label: string; href: string } | null
   startsAt?: string
@@ -89,6 +90,11 @@ export interface Task extends TaskSummary {
   allowedWords?: string[] | null
   coreOverrideLimit?: number | null
   namePublishLimit?: number | null
+  maxNameLength?: number | null
+  allowedKeywords?: string[] | null
+  visibility?: 'visible' | 'hidden' | 'event'
+  eventId?: string | null
+  datacenterFire?: boolean
   nameBudget?: { used: number; limit: number; taskUsed: number; taskLimit: number; coreUsed: number; coreLimit: number }
   resubmitPenalty?: { enabled: boolean; percent: number; points: number }
 }

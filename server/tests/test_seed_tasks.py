@@ -95,6 +95,22 @@ class SeedTaskTests(unittest.TestCase):
                 self.assertFalse(current["settings"]["resubmitPenaltyEnabled"])
                 self.assertEqual(current["settings"]["resubmitPenaltyPercent"], 5)
 
+    def test_legacy_parameter_copy_refresh_preserves_authored_translations(self):
+        import copy
+        from server.seed import refresh_seed_language_copy
+        seeded = initial_tasks()[0]
+        legacy = copy.deepcopy(seeded)
+        legacy['constraints'][2] = 'All names, including parameters, are global.'
+        legacy['translations']['en']['constraints'][2] = 'All names, including parameters, are global.'
+        legacy['translations']['ru']['constraints'] = ['Авторское ограничение.']
+        refresh_seed_language_copy(legacy, seeded)
+        self.assertEqual(legacy['constraints'], seeded['constraints'])
+        self.assertEqual(legacy['translations']['en']['constraints'], seeded['translations']['en']['constraints'])
+        self.assertEqual(legacy['translations']['ru']['constraints'], ['Авторское ограничение.'])
+        unchanged = copy.deepcopy(legacy)
+        refresh_seed_language_copy(legacy, seeded)
+        self.assertEqual(legacy, unchanged)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -42,7 +42,7 @@ const contracts = [
   ['@set', 'set(a, i, v)', 'set(a,i,v) → a′\nget(a′,i) ≡ v', 'Mutation must preserve the select-store law.'],
   ['@length', 'length(a)', 'length(a) ≥ 0', 'Return a nonnegative int. Dictionary length counts distinct keys.'],
   ['@empty', 'empty(a)', 'empty(a) ⇒ length(a) = 0', 'Return int 0 or 1.'],
-  ['@contains', 'contains(a, x)', 'contains(a,x) ∈ {0,1}', 'Return int 0 or 1. Availability depends on administrator permissions.'],
+  ['@contains', 'contains(a, x)', 'contains(a,x) ∈ {0,1}', 'Return int 0 or 1. Overrides are disabled by default; administrators may enable them.'],
   ['@push_back', 'push_back(a, x)', 'push_back(a,x) → a′\n|a′| = |a| + 1\nx ∈ a′', 'Add one element and retain the inserted value.'],
   ['@truthy', 'truthy(a)', '∃σ₀ ∈ Init: σ₀ ⊨ EF(r₀)\n∃σ₁ ∈ Init: σ₁ ⊨ EF(r₁)', 'Return int 0 or 1; both return values must be reachable.'],
   ['@concat', 'concat(b, c)', 'a = concat(b,c) ⇒\nlength(a) ≥ length(b) ∧ length(a) ≥ length(c)', 'Return a string.'],
@@ -61,7 +61,7 @@ export function LanguageGuide() {
     </Panel>
     <Panel className="panel-pad">
       <h2>{t('Shared names')}</h2>
-      <p>{t('All names are global, including parameters and helper functions. Other players can replace them. Even names declared inside a function belong to the shared world.')}</p>
+      <p>{t('Variables and helper functions are global. Other players can replace them. Names declared with let inside a function also belong to the shared world.')}</p>
       <GuideCode source={guideExamples[3]} />
       <p>{t('Another player can publish shared = 99 through a passing solution to another task:')}</p>
       <GuideCode source={guideExamples[4]} />
@@ -75,7 +75,7 @@ export function LanguageGuide() {
     </Panel>
     <Panel className="panel-pad">
       <h2>{t('Functions and values')}</h2>
-      <p>{t('Call a function with name(arguments). Missing arguments become int 0 and extra arguments are evaluated, then ignored. Finishing without return produces int 0. Parameters remain global names and can be shadowed.')}</p>
+      <p>{t('Call a function with name(arguments). Missing arguments become int 0 and extra arguments are evaluated, then ignored. Finishing without return produces int 0. Parameters shadow shared names during a call; argument bindings do not publish. Explicit let declarations and assignments publish even when they use a parameter name.')}</p>
       <GuideCode source={guideExamples[2]} />
       <p>{t('A function name without () reads its last returned value, initially 0; it does not call the function or create a function reference. Each call updates that saved result.')}</p>
       <GuideCode source={guideExamples[6]} />
@@ -102,6 +102,7 @@ export function LanguageGuide() {
     </Panel>
     <Panel className="panel-pad">
       <h2>{t('Redefining operations and casts')}</h2>
+      <p>{t('Administrators can change which operations may be overridden. contains overrides are disabled by default.')}</p>
       <p>{t('Use an annotation on your own function name to override an operation; reserved stdlib names cannot be declared. Only overrides allowed by the administrator and task budget may be published. Type specifiers are useful here to select operand types and satisfy builtin input requirements.')}</p>
       <GuideCode source={guideExamples[5]} />
       <p>{t('Builtin escape calls are available only inside stdlib overrides. These bodies may call only __builtin_* functions and must not perform casts. __builtin_eq__ requires equal argument types. Replacing an existing override must preserve its annotation and contract; changed global parameters must also preserve its contracts.')}</p>

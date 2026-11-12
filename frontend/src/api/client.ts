@@ -166,6 +166,7 @@ export const api = {
   rating: (table: string, search = '') => apiFetch<RatingTable>(`/rating?table=${encodeURIComponent(table)}&q=${encodeURIComponent(search)}`),
 
   adminSummary: () => apiFetch<AdminSummary>('/admin/summary'),
+  adminNews: () => apiFetch<NewsItem[]>('/admin/news'),
   performance: () => apiFetch<PerformanceSnapshot>('/admin/performance'),
   adminUsers: () => apiFetch<User[]>('/admin/users'),
   updateUser: (id: string, patch: Partial<Pick<User, 'role' | 'adminNote' | 'banned' | 'nameLimit' | 'username' | 'rating' | 'solvedTaskIds'>> & { purgeState?: boolean }) =>

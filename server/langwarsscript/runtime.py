@@ -12,6 +12,7 @@ TYPES = ("int", "string", "list", "dict")
 OPERATIONS = ("eq", "cmp", "get", "set", "length", "contains", "empty", "push_back", "truthy", "concat", "cast")
 BUILTINS = {f"__builtin_{n}__" for n in ("eq", "lt", "get", "set", "length", "concat", "contains")}
 KEYWORDS = {"fn", "let", "return", "if", "else", "while", "comefrom", "and", "or", "not", "solution", "float", "function"}
+RESTRICTABLE_KEYWORDS = {"let", "return", "if", "else", "while", "comefrom", "and", "or", "not"}
 RESERVED = set(OPERATIONS) | set(TYPES) | BUILTINS | KEYWORDS
 LIMIT = 1_000_000
 
@@ -119,6 +120,11 @@ class Parser:
         if any(word in unicodedata.normalize("NFKC", text).casefold() for text in moderation_texts for word in deny):
             raise Rejected("Code contains a word blocked by the platform", "DENIED_WORD")
         self.options = options
+        allowed_keywords = options.get("allowed_keywords")
+        if allowed_keywords is not None:
+            for token in self.tokens:
+                if token.kind == "id" and token.value in RESTRICTABLE_KEYWORDS and token.value not in allowed_keywords:
+                    raise Rejected(f"Keyword {token.value} is disabled for this task", "KEYWORD_DISABLED", token.pos)
         self.names, self.declared, self.labels = set(), set(), set()
         raw_words = options.get("allowed_words")
         self.words = None if raw_words is None else {str(word).lower() for word in raw_words}
@@ -170,6 +176,7 @@ class Parser:
         while self.current.kind != "eof":
             if self.current.value in ("@", "fn"):
                 source_start = self.current.pos
+                token_start = self.index
                 annotation, cast_to = None, None
                 if self.accept("@"):
                     annotation = self.current.value
@@ -202,6 +209,7 @@ class Parser:
                     raise Rejected("Parameter names must be unique and type count must match", pos=self.current.pos)
                 functions[name] = {"name": name, "params": params, "types": types, "annotation": annotation, "cast_to": cast_to, "body": self.block(), "source_id": self.source_id, "source_order": len(functions)}
                 functions[name]["source"] = self.source[source_start:self.tokens[self.index - 1].pos + 1]
+                functions[name]["keywords"] = sorted({token.value for token in self.tokens[token_start:self.index] if token.kind == "id" and token.value in RESTRICTABLE_KEYWORDS})
             else:
                 statement = self.statement()
                 if statement["op"] not in ("let", "assign"):
@@ -216,9 +224,6 @@ class Parser:
             raise Rejected("This operation cannot currently be overridden", "OVERRIDE_DISABLED")
         if len(overrides) > self.options.get("max_overrides", 16):
             raise Rejected("Too many core overrides for this task", "OVERRIDE_LIMIT")
-        maximum = self.options.get("max_names")
-        if maximum is not None and len(self.names) > maximum:
-            raise Rejected(f"This task permits at most {maximum} unique names per program", "TASK_NAME_LIMIT")
         return {"functions": functions, "top": top, "names": sorted(self.names), "source_id": self.source_id}
 
     def block(self):
@@ -460,6 +465,24 @@ def check_builtin_scope(body, annotation=None):
                 raise Rejected("Builtin functions may only be called inside stdlib override definitions", "BUILTIN_SCOPE", stmt.get("pos", 0))
 
 
+def function_keywords(function):
+    """Support both new functions and snapshots authored before keyword policies."""
+    found = set(function.get("keywords", []))
+    pending, count = list(function["body"]), 0
+    while pending:
+        stmt = pending.pop()
+        count += 1
+        if count > 16384: raise Exhausted("AST limit exceeded")
+        if stmt["op"] in RESTRICTABLE_KEYWORDS: found.add(stmt["op"])
+        if stmt.get("other"): found.add("else")
+        pending.extend(stmt.get("body", []))
+        pending.extend(stmt.get("other", []))
+        for expr in expression_walk(stmt.get("expr", ["int", 0])):
+            if expr[0] in ("unary", "binary") and expr[1] in RESTRICTABLE_KEYWORDS:
+                found.add(expr[1])
+    return found
+
+
 def check_contract_syntax(function):
     annotation = function.get("annotation")
     if annotation not in OPERATIONS: return
@@ -487,6 +510,7 @@ class Runtime:
                 if len(self.frozen_objects) > 100_000: raise Exhausted("Snapshot size limit exceeded")
                 pending.extend(value if isinstance(value, list) else [item for pair in value.pairs for item in pair])
         self.written, self.dependencies = set(), set()
+        self.last_written = set()
         self.parameter_only = set()
         self.published_functions = {}
         self.steps, self.allocated, self.calls, self.expr_depth = 0, 0, 0, 0
@@ -494,6 +518,7 @@ class Runtime:
         self.deadline = time.monotonic() + min(10, max(.01, self.options.get("timeout_ms", 2000) / 1000))
         self.max_cells = min(1_000_000, max(1000, self.options.get("max_cells", 100_000)))
         self.contract = None
+        self.keyword_checked = set()
         next_priority = max((f.get("publication_priority", 0) for f in self.functions.values()), default=0) + 1
         for name, function in program["functions"].items():
             old = self.functions.get(name)
@@ -511,11 +536,25 @@ class Runtime:
         self.function_order = sorted(self.functions, key=lambda n: (-self.functions[n].get("publication_priority", 0), self.functions[n].get("source_order", 0), self.functions[n].get("source_id", ""), n))
         for function in self.functions.values(): check_contract_syntax(function)
         self.bytecode = {n: flatten(f["body"]) for n, f in self.functions.items()}
+        self.bytecode_functions = dict(self.functions)
         self.bytecode["<global>"] = flatten(program["top"])
         self.redirects = self.build_redirects()
         if self.redirects:
             # Redirect topology can change when an inherited function disappears.
             self.dependencies.add("@control")
+
+    def check_keyword(self, keyword, pos=0):
+        allowed = self.options.get("allowed_keywords")
+        if allowed is not None and keyword not in allowed:
+            raise Rejected(f"Keyword {keyword} is disabled for this task", "KEYWORD_DISABLED", pos)
+
+    def check_function_keywords(self, name):
+        if name in self.keyword_checked or name == "<global>": return
+        function = self.bytecode_functions.get(name)
+        if function:
+            for keyword in sorted(function_keywords(function)):
+                self.check_keyword(keyword)
+        self.keyword_checked.add(name)
 
     def tick(self, cost=1):
         self.steps += cost
@@ -823,22 +862,26 @@ class Runtime:
             self.contract = function.get("annotation") if function.get("annotation") in OPERATIONS else None
             result, destination = self.execute(name)
             self.last[destination] = result
+            self.last_written.add(destination)
             return result
         finally:
             self.contract = previous
             self.calls -= 1
 
     def execute(self, name):
+        self.check_function_keywords(name)
         index, code = 0, self.bytecode[name]
         while index < len(code):
             self.tick()
+            stmt = code[index]
             redirect = self.redirects.get((name, index))
             if redirect:
+                self.check_keyword("comefrom", redirect[3])
                 name, index = redirect[:2]
+                self.check_function_keywords(name)
                 if name != "<global>": self.dependencies.add(name)
                 code = self.bytecode[name]
                 continue
-            stmt = code[index]
             op = stmt["op"]
             index += 1
             if op in ("let", "assign"):
@@ -904,9 +947,16 @@ class Runtime:
             if name in self.vars and name not in self.parameter_only and name not in self.frozen and name not in variables:
                 current = encode(self.vars[name], budget=budget)
                 if current != old: variables[name] = current
-        result = {"variables": variables, "functions": self.published_functions, "last": {n: encode(v, budget=budget) for n, v in self.last.items()}}
+        result = {"variables": variables, "functions": self.published_functions,
+                  "last": {n: encode(self.last[n], budget=budget) for n in sorted(self.last_written)}}
+        maximum = self.options.get("max_names")
+        if maximum is not None and len(publication_names(result)) > maximum:
+            raise Rejected(f"This task permits at most {maximum} unique published names per submission", "TASK_NAME_LIMIT")
         if len(json.dumps(result)) > 2_000_000: raise Exhausted("Publication size limit exceeded")
         return result
+
+def publication_names(changes):
+    return set().union(*(set(changes.get(section, {})) for section in ("variables", "functions", "last")))
 
 def merge_snapshot(snapshot, changes):
     merged = copy.deepcopy(snapshot or {})
@@ -958,6 +1008,11 @@ def contract_samples(cheap=False):
 def _validate_publication(snapshot, changes, options):
     for function in changes.get("functions", {}).values():
         check_builtin_scope(function["body"], function.get("annotation"))
+        allowed = options.get("allowed_keywords")
+        if allowed is not None:
+            for keyword in sorted(function_keywords(function)):
+                if keyword not in allowed:
+                    raise Rejected(f"Keyword {keyword} is disabled for this task", "KEYWORD_DISABLED")
     for name, old in snapshot.get("functions", {}).items():
         annotation = old.get("annotation")
         if annotation in OPERATIONS:
@@ -979,7 +1034,11 @@ def _validate_publication(snapshot, changes, options):
                 for expr in expression_walk(stmt.get("expr", ["int", 0])):
                     if expr[0] in ("int", "string") and len(samples[expr[0]]) < 20 and expr[1] not in samples[expr[0]]:
                         samples[expr[0]].append(expr[1])
-    settings = dict(options, overlay_names=list(merged["variables"]))
+    # Contract probes validate shared invariants, independently of a challenge's
+    # execution restrictions. Dormant shared definitions must not block an
+    # otherwise valid challenge publication.
+    settings = dict(options, overlay_names=list(merged["variables"]), allowed_keywords=None,
+                    max_names=None)
     runtime = Runtime({"functions": {}, "top": [], "names": []}, merged, settings)
     runtime.max_steps = min(2_000_000, max(100_000, options.get("contract_steps", 1_000_000)))
     runtime.deadline = time.monotonic() + min(10, options.get("contract_timeout_ms", 5000) / 1000)
@@ -1116,6 +1175,7 @@ def _validate_publication(snapshot, changes, options):
 def judge(code, tests, snapshot=None, options=None):
     options = options or {}
     results, dependencies, changes, names = [], set(), {"variables": {}, "functions": {}, "last": {}}, []
+    published_names = []
     try:
         program = compile_program(code, options)
         names = program["names"]
@@ -1132,14 +1192,17 @@ def judge(code, tests, snapshot=None, options=None):
             passed = builtin_equal(result, expected)
             results.append({"name": test.get("name", f"Test {index + 1}"), "input": json.dumps(args, ensure_ascii=False), "expected": runtime.render(expected), "actual": runtime.render(result), "passed": passed, "durationMs": round((time.monotonic() - start) * 1000, 2)})
             dependencies.update(runtime.dependencies)
-            if index == 0: changes = runtime.changes()
+            test_changes = runtime.changes()
+            if index == 0:
+                changes = test_changes
+                published_names = sorted(publication_names(changes))
         if not all(test["passed"] for test in results):
-            return {"status": "WRONG_ANSWER", "tests": results, "stdout": "", "diagnostics": [], "changes": {}, "dependencies": sorted(dependencies), "names": names}
+            return {"status": "WRONG_ANSWER", "tests": results, "stdout": "", "diagnostics": [], "changes": {}, "dependencies": sorted(dependencies), "names": names, "publishedNames": published_names}
         if not options.get("read_only"):
             errors = validate_publication(snapshot or {}, changes, options)
-            if errors: return {"status": "CE", "tests": results, "stdout": "", "diagnostics": errors, "changes": {}, "dependencies": sorted(dependencies), "names": names}
-        return {"status": "OK", "tests": results, "stdout": "", "diagnostics": [], "changes": {} if options.get("read_only") else changes, "dependencies": sorted(dependencies), "names": names}
+            if errors: return {"status": "CE", "tests": results, "stdout": "", "diagnostics": errors, "changes": {}, "dependencies": sorted(dependencies), "names": names, "publishedNames": published_names}
+        return {"status": "OK", "tests": results, "stdout": "", "diagnostics": [], "changes": {} if options.get("read_only") else changes, "dependencies": sorted(dependencies), "names": names, "publishedNames": published_names}
     except Rejected as error:
-        return {"status": "TLE" if isinstance(error, Exhausted) else "CE", "tests": results, "stdout": "", "diagnostics": [diagnostic(error)], "changes": {}, "dependencies": sorted(dependencies), "names": names}
+        return {"status": "TLE" if isinstance(error, Exhausted) else "CE", "tests": results, "stdout": "", "diagnostics": [diagnostic(error)], "changes": {}, "dependencies": sorted(dependencies), "names": names, "publishedNames": published_names}
     except (RecursionError, MemoryError):
-        return {"status": "TLE", "tests": results, "stdout": "", "diagnostics": [diagnostic(Exhausted())], "changes": {}, "dependencies": sorted(dependencies), "names": names}
+        return {"status": "TLE", "tests": results, "stdout": "", "diagnostics": [diagnostic(Exhausted())], "changes": {}, "dependencies": sorted(dependencies), "names": names, "publishedNames": published_names}

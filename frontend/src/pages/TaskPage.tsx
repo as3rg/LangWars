@@ -21,6 +21,7 @@ import { RatingTablePanel } from '@/components/RatingTablePanel'
 import { SubmissionModal } from '@/components/SubmissionModal'
 import { BreakImpactBadge } from '@/components/BreakImpact'
 import { TaskDictionary } from '@/components/TaskDictionary'
+import { formatArguments } from '@/lib/arguments'
 import {
   Badge,
   DifficultyBadge,
@@ -188,7 +189,7 @@ function TaskWorkspace({ task }: { task: Task }) {
                 <div className="example-body">
                   <div>
                     <span className="example-label">{t("input")}</span>
-                    <span className="mono">{example.input}</span>
+                    <span className="mono" style={{ whiteSpace: 'pre-wrap' }}>{formatArguments(example.input, task.starterCode)}</span>
                   </div>
                   <div>
                     <span className="example-label">{t("output")}</span>
@@ -213,8 +214,12 @@ function TaskWorkspace({ task }: { task: Task }) {
 
           <TaskDictionary words={task.allowedWords ?? []} />
 
+          {task.maxNameLength != null && <p className="muted">{t('Maximum name length: {count}', { count: task.maxNameLength })}</p>}
+          {task.allowedKeywords != null && <p className="muted">{t('Allowed keywords: ')}<code>{task.allowedKeywords.join(', ') || t('None')}</code></p>}
+          {task.datacenterFire && <p className="muted">{t('Datacenter fire: a random line disappears from the editor while you work. Submissions run normally.')}</p>}
+
           <p className="muted" style={{ marginTop: 20 }}>{t("Run checks the examples. Submit checks all tests and publishes changes when accepted. Time limit: ")}{task.timeLimitMs} {t("ms.")}</p>
-          <p className="muted">{t("Use exactly one ")}<code>@solution</code> {t("function. Names and parameters are global; another player can change them later.")}</p>
+          <p className="muted">{t("Use exactly one ")}<code>@solution</code> {t('function. Variables and helper functions are shared. Parameters shadow shared names during a call; argument bindings do not publish.')}</p>
           <Link to="/world">{t("Explore shared names and available words →")}</Link>
           <p><Link to="/guide">{t('LWLang guide')} →</Link></p>
         </Panel>
@@ -227,12 +232,13 @@ function TaskWorkspace({ task }: { task: Task }) {
 
           {user && task.nameBudget && <div className="name-budget row wrap" role="status" style={{ gap: 16 }}>
             <span title={t('All names claimed by your account')}>{t('Names')} <strong>{formatNumber(task.nameBudget.used)} / {formatNumber(task.nameBudget.limit)}</strong></span>
-            <span title={t('Names claimed by your accepted solutions for this task')}>{t('This task')} <strong>{formatNumber(task.nameBudget.taskUsed)} / {formatNumber(task.nameBudget.taskLimit)}</strong></span>
+            <span title={t('Names published by your current accepted submission')}>{t('Per submission')} <strong>{formatNumber(task.nameBudget.taskUsed)} / {formatNumber(task.nameBudget.taskLimit)}</strong></span>
             <span>{t('Core overrides')} <strong>{formatNumber(task.nameBudget.coreUsed)} / {formatNumber(task.nameBudget.coreLimit)}</strong></span>
           </div>}
 
           <LwEditor
             code={code}
+            datacenterFire={Boolean(user && task.datacenterFire)}
             onChange={setCode}
             version={version}
             addonPacks={task.addonPacks}
@@ -265,7 +271,7 @@ function TaskWorkspace({ task }: { task: Task }) {
                   <div className="test-row" key={index}>
                     <span className={`status-dot ${test.passed ? 'ok' : 'bad'}`} />
                     <span className="name">{test.name}</span>
-                    <span className="mono dim">{test.input}</span>
+                    <span className="mono dim" style={{ whiteSpace: 'pre-wrap' }}>{formatArguments(test.input, code)}</span>
                     {!test.passed && <span className="mono">{t("expected ")}{test.expected}{t("; got ")}{test.actual ?? t("no result")}</span>}
                     <span style={{ marginLeft: 'auto' }}>{test.passed ? t("passed") : t("failed")}</span>
                   </div>
