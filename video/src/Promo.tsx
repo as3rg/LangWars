@@ -83,7 +83,7 @@ export const LangWarsPromo: React.FC = () => {
         <S5Join />
       </Sequence>
 
-      <Audio src={staticFile('audio/langwars-mix.wav')} />
+      <Audio src={staticFile('audio/langwars-promo-v2.wav')} />
 
       <ScreenFrame />
 

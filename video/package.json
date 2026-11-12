@@ -28,6 +28,7 @@
     "build": "remotion bundle",
     "render": "remotion render LangWarsPromo out/langwars-promo.mp4 --codec=h264 --crf=18 --audio-bitrate=320k",
     "sound": "python tools/make_soundtrack.py",
+    "sound:v2": "python tools/make_soundtrack_v2.py",
     "upgrade": "remotion upgrade",
     "lint": "eslint src && tsc"
   },

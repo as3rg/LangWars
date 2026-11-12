@@ -2,7 +2,7 @@
 
 Быстрый шоурил платформы LangWars: общий мир, общие имена, поломка чужого решения, язык, рейтинг, ивенты и вход в мир.
 
-- 1920×1080, 30 fps, 53 секунды, со звуком: синтезированный retro-techno и SFX.
+- 1920×1080, 30 fps, 53 секунды, со звуком: синтезированный brostep/dubstep и SFX.
 - Все экраны собраны на React/Remotion, а не на скриншотах.
 - Палитра, шрифты и Neko-9 взяты из реального фронтенда LangWars.
 - Игровой текст русский; английский остаётся только в коде, брендах и технических идентификаторах.
@@ -11,7 +11,7 @@
 
 - `out/langwars-promo.mp4` — 1920×1080, H.264 + AAC 320k, 53,3 секунды.
 - `out/poster.png` — кадр для превью.
-- `public/audio/langwars-mix.wav` — готовый микс; стемы музыки и SFX — в `out/stems/`.
+- `public/audio/langwars-promo-v2.wav` — готовый микс; стемы музыки и SFX — в `out/stems-v2/`.
 
 ## Запуск
 
@@ -55,16 +55,21 @@ npx remotion still LangWarsPromo out/frame.png --frame=660
 - `src/components/ui.tsx` — окна, код, пилюли, QR.
 - `src/components/Type.tsx` — крупная типографика и reveal-анимации.
 - `src/content.ts` — ссылка, QR, авторы.
-- `tools/make_soundtrack.py` — синтез музыки и SFX, детерминированный сид.
-- `public/audio/` — готовый микс; стемы складываются в `out/stems/`.
+- `tools/make_soundtrack_v2.py` — синтез brostep-микса и SFX, детерминированный сид.
+- `tools/make_soundtrack.py` — прежний retro-techno микс (не используется в рендере).
+- `public/audio/` — готовый микс; стемы складываются в `out/stems-v2/`.
 - `VOICEOVER.md` — короткий закадровый текст с таймкодами.
 
 ## Звук
 
-- 126 BPM, 28 тактов ровно на 53,333 секунды; A minor; 82 SFX-события.
-- Всё синтезировано локально в `tools/make_soundtrack.py`: без сэмплов и внешних API.
-- Мастер: −14,1 LUFS, true peak −1,7 dBFS; AAC 320k в финальном MP4.
-- Пересобрать: `npm run sound` (или `python tools/make_soundtrack.py`). Скрипт пишет микс, стемы и `out/soundtrack.json` с картой событий.
+- 150 BPM (12 кадров на долю), A minor; brostep-грув с дабстеп-вобблом на дропах.
+- Все удары привязаны к номерам кадров: импакты на склейках 120/330/420/436/576/1086/1266/1402/1584,
+  стуттер-монтаж 1086–1176 попадает в каждую смену слова.
+- Всё синтезировано локально в `tools/make_soundtrack_v2.py`: без сэмплов и внешних API.
+- Мастер: 44,1 кГц, 16 бит, true peak −0,6 dBFS, RMS ≈ −14,9 dBFS; AAC 320k в финальном MP4.
+- Пересобрать: `npm run sound:v2` (или `python tools/make_soundtrack_v2.py`). Скрипт пишет микс,
+  стемы в `out/stems-v2/` и `out/soundtrack-v2.json` с картой событий.
+- Для скрипта нужен numpy: `python3 -m venv .venv-sound && .venv-sound/bin/pip install numpy`.
 - Закадровый голос не записан: музыка и SFX уже сведены, а текст для озвучки лежит в `VOICEOVER.md`.
 
 ## Дизайн
