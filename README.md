@@ -60,3 +60,6 @@ npm run build
 See [deployment and operations](docs/Operations.md) for VPN workers, resource sizing, backups, and the execution boundary. Read [architecture](docs/Architecture.md) before changing publication or rejudging.
 
 The completed checks and their limits are recorded in [verification](docs/Verification.md).
+
+## Presentation
+[Current deployment](https://localpiper.github.io)
