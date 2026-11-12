@@ -300,6 +300,7 @@ CHORDS = {
     "C": [130.81, 164.81, 196.0],
     "G": [98.0, 123.47, 146.83],
 }
+COLOR_TONES = {"Am": 392.0, "F": 329.63, "C": 493.88, "G": 440.0}
 PROGRESSION = ("Am", "F", "C", "G")
 
 
@@ -330,23 +331,37 @@ def pluck(freq: float, dur: float = 0.3, cutoff: float = 2200.0) -> np.ndarray:
     return normalize(out) * env(n, 0.002, 0.06, decay=0.1)
 
 
-def music_bar(start: float, chord_name: str, lead_gain: float = 0.085, pad_gain: float = 0.1, arp: bool = True) -> None:
+def music_bar(
+    start: float,
+    chord_name: str,
+    lead_gain: float = 0.085,
+    pad_gain: float = 0.1,
+    arp: bool = True,
+    color: bool = False,
+    octave: bool = True,
+    arp_step: float = 6.0,
+    bar_frames: float = BAR,
+) -> None:
     chord = CHORDS[chord_name]
-    add("music", warm_pad(chord, BAR / FPS + 0.25), start, pad_gain)
+    add("music", warm_pad(chord, bar_frames / FPS + 0.25), start, pad_gain)
+    if octave:
+        add("music", warm_pad([f * 0.5 for f in chord], bar_frames / FPS + 0.25, attack=0.4, release=0.9), start, pad_gain * 0.4)
+    if color:
+        add("music", warm_pad([COLOR_TONES[chord_name]], bar_frames / FPS + 0.25, attack=0.25, release=0.7), start, pad_gain * 0.35)
     if not arp:
         return
-    seq = [
-        chord[0] * 2,
-        chord[1] * 2,
-        chord[2] * 2,
-        chord[1] * 2,
-        chord[2] * 2,
-        chord[1] * 2,
-        chord[0] * 2,
-        chord[1] * 2,
-    ]
-    for i, freq in enumerate(seq):
-        add("music", pluck(freq), start + i * 6, lead_gain, pan=0.15 if i % 2 else -0.15)
+    steps = max(1, int(round(bar_frames / arp_step)))
+    pattern = (0, 1, 2, 1, 2, 1, 0, 1)
+    note_dur = 0.3 if arp_step >= 5 else 0.16
+    for i in range(steps):
+        idx = pattern[i % len(pattern)]
+        add("music", pluck(chord[idx] * 2.0, dur=note_dur), start + i * arp_step, lead_gain, pan=0.15 if i % 2 else -0.15)
+
+
+def place_lead(freq: float, frame: float, gain: float = 0.075, dur: float = 0.34, down: bool = False) -> None:
+    add("lead", lead_note(freq, dur=dur), frame, gain, pan=0.05)
+    if down:
+        add("lead", lead_note(freq * 0.5, dur=dur * 1.2, cutoff=2200.0), frame, gain * 0.55, pan=-0.05)
 
 
 def wobble(
@@ -366,8 +381,8 @@ def wobble(
     t = np.arange(n) / SR
     if phase is None:
         phase = float(rng.uniform(0.0, 2.0 * np.pi))
-    lfo_hz = min(lfo_hz, 6.0)
-    cut_hi = min(cut_hi, 1500.0)
+    lfo_hz = min(lfo_hz, 12.0)
+    cut_hi = min(cut_hi, 2400.0)
     lfo = 0.5 * (1.0 + np.sin(2.0 * np.pi * lfo_hz * t + phase))
     lfo = lfo**1.4
     fc = cut_lo * (cut_hi / cut_lo) ** lfo
@@ -427,19 +442,21 @@ def drum_bar(
     intense: bool = False,
     ghost: bool = False,
     fill: bool = False,
+    beat: float = BEAT,
+    bar: float = BAR,
 ) -> None:
     for off in kicks:
         place_kick(start + off, 0.84 if intense else 0.72)
     for off in snares:
         place_snare(start + off, 0.48 if intense else 0.4)
     f = 0.0
-    while f < 47.5:
-        accent = abs(f % 12.0) < 0.01
-        if accent or f % 24.0 < 0.01:
+    while f < bar - 0.5:
+        accent = abs(f % beat) < 0.01
+        if accent or f % (beat * 2.0) < 0.01:
             place_hat(start + f, 0.1 if accent else 0.05, pan=0.25 if int(f) % 2 else -0.2)
         f += hat_step
     if fill:
-        for off in (42, 45):
+        for off in (bar - 6, bar - 3):
             place_snare(start + off, 0.2)
 
 
@@ -465,10 +482,12 @@ def snare_roll(start: float, end: float, step0: float = 4.0, step1: float = 1.5,
 
 
 def switch(frame: float, strength: float = 1.0, name: str = "switch") -> None:
+    """Hard cut: no whoosh, just a tick, a short laser drop and a slam."""
     mark(frame, name, strength)
-    add("sfx", whoosh(0.26), frame - 8, 0.1 * strength)
+    add("sfx", tick(1500.0 + 250.0 * strength, 0.05), frame, 0.12 * strength)
+    add("sfx", downlifter(0.24, 2600.0, 90.0), frame, 0.18 * strength)
     add("sfx", impact(dur=1.1, sub=0.7 * strength, bright=0.4 * strength), frame, 0.34 * strength)
-    add("sfx", crash(dur=1.0), frame, 0.09 * strength)
+    add("sfx", crash(dur=0.8), frame, 0.06 * strength)
 
 
 # --------------------------------------------------------------------------- arrangement
@@ -497,8 +516,8 @@ for frame in (48, 60, 72, 84, 96):
 for i, frame in enumerate((58, 61, 64, 67, 70)):
     add("music", blip((523.25, 587.33, 659.25, 783.99, 880.0)[i], dur=0.12), frame, 0.1)
 mark(58, "credits", 0.6)
-add("sfx", whoosh(0.34, 400.0, 2600.0), 96, 0.1)
-add("sfx", riser(26 / FPS, 150.0, 900.0), 94, 0.2)
+add("sfx", downlifter(0.28, 2000.0, 180.0), 98, 0.14)
+add("sfx", riser(8 / FPS, 300.0, 1400.0), 106, 0.2)
 snare_roll(100, 120, 4.0, 2.0, 0.12)
 
 # ---------------------------------------------------------------- 01 — manifesto (120-330)
@@ -532,7 +551,8 @@ for frame, strength, name in (
     (222, 0.65, "flash violet"),
     (278, 0.95, "flash magenta"),
 ):
-    add("sfx", whoosh(0.22), frame - 6, 0.07 * strength)
+    add("sfx", tick(1900.0, 0.04), frame, 0.09 * strength)
+    add("sfx", downlifter(0.2, 2400.0, 120.0), frame, 0.12 * strength)
     add("sfx", impact(dur=0.8, sub=0.5, bright=0.5), frame, 0.26 * strength)
     add("music", stab([220.0, 261.63, 329.63], dur=0.28), frame, 0.2 * strength)
     mark(frame, name, strength)
@@ -541,8 +561,8 @@ add("music", stab([220.0, 261.63, 329.63, 440.0], dur=0.5, cutoff=3800), 280, 0.
 add("sfx", crash(1.2), 280, 0.1)
 mark(280, "statement four", 1.0)
 
-snare_roll(300, 330, 5.0, 2.0, 0.11)
-add("sfx", riser(30 / FPS, 180.0, 1600.0), 300, 0.2)
+snare_roll(318, 330, 3.5, 1.5, 0.11)
+add("sfx", riser(8 / FPS, 400.0, 1800.0), 322, 0.18)
 
 # ---------------------------------------------------------------- 02 — break (330-576)
 switch(330, 1.05, "cut manifesto→break")
@@ -565,27 +585,27 @@ add("sfx", blip(330.0, 1320.0, dur=0.2), 374, 0.2)
 add("music", stab([174.61, 220.0, 261.63], dur=0.3), 374, 0.18)
 mark(374, "submission b enters", 0.8)
 
-snare_roll(400, 420, 4.0, 2.0, 0.13)
-add("sfx", riser(18 / FPS, 200.0, 2400.0), 402, 0.22)
+snare_roll(410, 420, 4.0, 1.5, 0.13)
+add("sfx", riser(10 / FPS, 250.0, 2400.0), 410, 0.2)
 
 switch(420, 1.35, "world breaks (impact)")
-add("bass", wobble(55.0, 18 / FPS, lfo_hz=5.0, cut_lo=110, cut_hi=1200, drive=1.4), 420, 0.36)
-music_bar(420, "Am", lead_gain=0.06, pad_gain=0.1)
+add("bass", wobble(55.0, 18 / FPS, lfo_hz=8.0, cut_lo=110, cut_hi=1600, drive=1.5), 420, 0.36)
+music_bar(420, "Am", lead_gain=0.06, pad_gain=0.1, color=True)
 for off in (0, 12):
     place_kick(420 + off, 1.0)
 place_snare(432, 0.5)
 
 switch(436, 1.2, "second impact (broken)")
-add("bass", wobble(41.2, 34 / FPS, lfo_hz=5.0, cut_lo=100, cut_hi=1300, drive=1.5), 436, 0.36)
-for off in (0, 30):
+add("bass", wobble(41.2, 34 / FPS, lfo_hz=9.0, cut_lo=100, cut_hi=1700, drive=1.6), 436, 0.36)
+for off in (0, 12, 30):
     place_kick(436 + off, 0.98)
 place_snare(460, 0.45)
 
-for off in (0, 30):
+for off in (0, 15, 30):
     place_kick(468 + off, 0.95)
 place_snare(492, 0.45)
-bass_bar(468, [41.2, 41.2, 49.0, 41.2], lfo=5.0, gain=0.32)
-music_bar(468, "F", lead_gain=0.06, pad_gain=0.1)
+bass_bar(468, [41.2, 41.2, 49.0, 41.2], lfo=7.0, gain=0.32)
+music_bar(468, "F", lead_gain=0.04, pad_gain=0.1, color=True, arp_step=3)
 
 for i, frame in enumerate((452, 456, 460, 464)):
     add("sfx", glitch(0.16, 180.0 + i * 40), frame, 0.12, pan=-0.4 if i % 2 else 0.4)
@@ -609,8 +629,10 @@ mark(528, "name out", 0.7)
 add("bass", wobble(55.0, 12 / FPS, lfo_hz=5.0, cut_lo=90, cut_hi=900, drive=1.4), 528, 0.28)
 
 add("music", warm_pad(CHORDS["G"], 34 / FPS, attack=0.15, release=0.4), 540, 0.1)
-snare_roll(540, 572, 4.0, 2.0, 0.13)
-add("sfx", riser(26 / FPS, 220.0, 2800.0), 540, 0.22)
+for i in range(12):
+    add("music", pluck((440.0, 523.25, 659.25, 523.25)[i % 4], dur=0.15), 540 + i * 3, 0.035, pan=0.2 if i % 2 else -0.2)
+snare_roll(560, 572, 3.5, 1.5, 0.13)
+add("sfx", riser(10 / FPS, 300.0, 2600.0), 562, 0.2)
 mark(572, "dropout", 1.0)
 
 # ---------------------------------------------------------------- 03 — showreel (576-1266)
@@ -630,10 +652,18 @@ D_NOTES = [
 bar = 576
 i = 0
 while bar + BAR <= 1080:
-    intense = True
-    drum_bar(bar, intense=intense, hat_step=6, fill=i % 8 == 7)
-    bass_bar(bar, D_NOTES[i % len(D_NOTES)], lfo=5.0, gain=0.3)
-    music_bar(bar, PROGRESSION[i % 4], lead_gain=0.065, pad_gain=0.1)
+    stage = 0 if i < 5 else (1 if i < 8 else 2)
+    kicks = (0, 30) if stage == 0 else ((0, 18, 30) if i % 2 == 0 else (0, 30))
+    drum_bar(bar, kicks=kicks, intense=True, hat_step=6, fill=(i % 4 == 3 and stage > 0))
+    bass_bar(bar, D_NOTES[i % len(D_NOTES)], lfo=(5.0, 7.0, 10.0)[stage], gain=0.3 + 0.015 * stage)
+    music_bar(
+        bar,
+        PROGRESSION[i % 4],
+        lead_gain=(0.065, 0.05, 0.04)[stage],
+        pad_gain=0.1,
+        color=stage > 0,
+        arp_step=6 if stage == 0 else 3,
+    )
     bar += BAR
     i += 1
 
@@ -646,7 +676,7 @@ for g in range(5):
     start = 576 + g * 96
     phrase = LEAD_PHRASES[g % 2]
     for step, freq in phrase.items():
-        add("lead", lead_note(freq, dur=0.34), start + step * 6, 0.075, pan=0.05)
+        place_lead(freq, start + step * 6, gain=0.075, dur=0.34, down=g >= 2)
 
 for frame, name in (
     (612, "beat intro→world"),
@@ -662,8 +692,9 @@ for frame, name in (
     (1026, "beat admin→news"),
     (1050, "beat news→revision"),
 ):
-    add("sfx", whoosh(0.2, 400.0, 2200.0), frame - 6, 0.07)
-    add("music", stab([329.63, 392.0, 493.88], dur=0.22, cutoff=3000), frame, 0.16)
+    add("sfx", tick(1700.0, 0.04), frame, 0.07)
+    add("sfx", downlifter(0.16, 2200.0, 250.0), frame, 0.1)
+    add("music", stab([329.63, 392.0, 493.88], dur=0.18, cutoff=3200), frame, 0.14)
     mark(frame, name, 0.8)
 
 # 646 world row update
@@ -704,15 +735,14 @@ for j, frame in enumerate((1014, 1019, 1024)):
 
 # 1030/1033 news cards
 for j, frame in enumerate((1030, 1033)):
-    add("sfx", whoosh(0.18, 600.0, 3000.0), frame, 0.08)
     add("music", blip((440.0, 587.33)[j], dur=0.15), frame, 0.13)
 
 # 1050-1082 revision counter + fill into montage
 add("music", stab([220.0, 261.63, 329.63, 440.0], dur=0.5, cutoff=3600), 1050, 0.2)
 for j in range(6):
     add("sfx", blip(600.0 + j * 95.0, dur=0.035), 1054 + j * 2.5, 0.06)
-snare_roll(1062, 1086, 4.0, 2.0, 0.13)
-add("sfx", riser(26 / FPS, 220.0, 3200.0), 1062, 0.2)
+snare_roll(1076, 1086, 3.0, 1.5, 0.13)
+add("sfx", riser(6 / FPS, 500.0, 3000.0), 1080, 0.2)
 
 # ---------------------------------------------------------------- montage (1086-1176)
 switch(1086, 0.9, "montage start")
@@ -744,21 +774,23 @@ switch(1176, 1.15, "outro")
 for g, start in enumerate((1176,)):
     phrase = LEAD_PHRASES[g % 2]
     for step, freq in phrase.items():
-        add("lead", lead_note(freq, dur=0.36), start + step * 6, 0.075, pan=0.05)
-for bar_start, chord_name in ((1176, "Am"), (1224, "F")):
+        place_lead(freq, start + step * 6, gain=0.075, dur=0.36, down=True)
+for bar_start, chord_name, root in ((1176, "Am", 55.0), (1224, "F", 43.65)):
     drum_bar(bar_start, kicks=(0, 30), snares=(24,), intense=True, hat_step=6)
-    bass_bar(bar_start, [55.0, 43.65, 49.0, 41.2], lfo=5.0, gain=0.3)
-    music_bar(bar_start, chord_name, lead_gain=0.07, pad_gain=0.11)
+    bass_bar(bar_start, [55.0, 43.65, 49.0, 41.2], lfo=6.0, gain=0.3)
+    for k in range(8):
+        add("bass", wobble(root, 6 / FPS + 0.02, lfo_hz=8.0, drive=1.1), bar_start + k * 6, 0.05)
+    music_bar(bar_start, chord_name, lead_gain=0.07, pad_gain=0.11, color=True)
 
 add("sfx", glitch(0.42, 260.0), 1218, 0.14)
 mark(1218, "glitch ТВОЙ ХОД", 1.0)
 add("music", stab([220.0, 277.18, 329.63], dur=0.3, cutoff=2000), 1228, 0.16)
-snare_roll(1240, 1258, 4.0, 2.0, 0.12)
+snare_roll(1250, 1258, 3.0, 1.5, 0.12)
 add("sfx", downlifter(0.34, 1800.0, 120.0), 1252, 0.12)
-add("sfx", riser(8 / FPS, 300.0, 3600.0), 1258, 0.22)
-add("sfx", crash(1.0), 1258, 0.09)
 
-# ---------------------------------------------------------------- 04 — join (1266-1600)
+# ---------------------------------------------------------------- 04 — join (1266-1600) — 180 BPM
+E_BEAT = 10.0  # 180 BPM at 30 fps
+E_BAR = 40.0
 switch(1266, 1.25, "cut showreel→join")
 
 E_NOTES = [
@@ -769,63 +801,82 @@ E_NOTES = [
     [49.0, 49.0, 55.0, 65.41],
     [55.0, 65.41, 55.0, 43.65],
     [55.0, 55.0, 65.41, 82.41],
+    [43.65, 49.0, 55.0, 65.41],
 ]
+E_BARS = [1266 + int(E_BAR) * k for k in range(8)]  # 1266 … 1546
 
-for idx, bar_start in enumerate((1266, 1314, 1362, 1410, 1458, 1506, 1554)):
-    if idx == 2:
-        # build: thinner kit, rolling snares
-        drum_bar(bar_start, kicks=(0,), snares=(), intense=False, hat_step=6)
-        add("bass", wobble(65.41, BAR / FPS, lfo_hz=5.0, drive=1.2), bar_start, 0.22)
-        music_bar(bar_start, "C", lead_gain=0.07, pad_gain=0.11)
-        snare_roll(bar_start + 12, bar_start + 40, 4.0, 2.0, 0.11)
-        add("sfx", riser(28 / FPS, 220.0, 2600.0), bar_start + 20, 0.18)
-    elif idx == 6:
+for idx, bar_start in enumerate(E_BARS):
+    if idx == 3:
+        # build into the 1402 final drop
+        drum_bar(bar_start, kicks=(0,), snares=(), intense=False, hat_step=5, beat=E_BEAT, bar=E_BAR)
+        add("bass", wobble(65.41, E_BAR / FPS, lfo_hz=9.0, drive=1.3), bar_start, 0.24)
+        music_bar(bar_start, "C", lead_gain=0.055, pad_gain=0.11, color=True, arp_step=5, bar_frames=E_BAR)
+        snare_roll(1390, 1402, 3.0, 1.2, 0.12)
+        add("sfx", riser(12 / FPS, 400.0, 3000.0), 1390, 0.18)
+    elif idx == 7:
         # final bar: strip to a build so the 1584 hit lands alone
         place_kick(bar_start, 0.82)
-        for f in range(int(bar_start), int(bar_start) + 18, 6):
+        for f in range(int(bar_start), int(bar_start) + 18, 5):
             place_hat(f, 0.08, pan=0.25 if f % 2 else -0.25)
-        add("bass", wobble(55.0, 14 / FPS, lfo_hz=5.0, drive=1.3), bar_start, 0.28)
+        add("bass", wobble(55.0, 14 / FPS, lfo_hz=10.0, drive=1.4), bar_start, 0.28)
         add("music", warm_pad(CHORDS["Am"], 24 / FPS, attack=0.15, release=0.5), bar_start, 0.11)
     else:
-        drum_bar(bar_start, kicks=(0, 30), snares=(24,), intense=True, hat_step=6, fill=idx in (1, 4))
-        bass_bar(bar_start, E_NOTES[idx], lfo=5.0, gain=0.3)
-        music_bar(bar_start, ("Am", "F", "C", "G", "Am", "F", "G")[idx], lead_gain=0.07, pad_gain=0.1)
+        drum_bar(
+            bar_start,
+            kicks=(0, 25),
+            snares=(20,),
+            intense=True,
+            hat_step=5,
+            fill=idx in (1, 4),
+            beat=E_BEAT,
+            bar=E_BAR,
+        )
+        bass_bar(bar_start, E_NOTES[idx], step=E_BEAT, lfo=10.0 if idx < 6 else 12.0, gain=0.3)
+        music_bar(
+            bar_start,
+            ("Am", "F", "C", "G", "Am", "F", "G", "Am")[idx],
+            lead_gain=0.04 if idx < 4 else 0.035,
+            pad_gain=0.1,
+            color=True,
+            arp_step=2.5,
+            bar_frames=E_BAR,
+        )
 
 # 1308 "ЗАХОДИ В ОБЩИЙ МИР" lift
 add("music", pad([130.81, 164.81, 196.0, 261.63], 44 / FPS, cutoff=1600, attack=0.2, release=0.8), 1308, 0.2)
 mark(1308, "заходи в общий мир", 0.9)
 
 # lead hook returns on the final drop and the brand bar
-for g, start in enumerate((1410, 1506)):
+for g, start in enumerate((1386, 1506)):
     phrase = LEAD_PHRASES[g % 2]
     for step, freq in phrase.items():
-        add("lead", lead_note(freq, dur=0.36), start + step * 6, 0.075, pan=0.05)
-add("lead", lead_note(880.0, dur=0.9, cutoff=3600), 1402, 0.07, pan=0.05)
+        place_lead(freq, start + step * 5, gain=0.075, dur=0.3, down=True)
+place_lead(880.0, 1402, gain=0.07, dur=0.9, down=True)
 
 # 1402 final drop
 switch(1402, 1.4, "final drop")
-add("bass", wobble(55.0, 44 / FPS, lfo_hz=5.0, cut_lo=110, cut_hi=1400, drive=1.5), 1402, 0.38)
+add("bass", wobble(55.0, 44 / FPS, lfo_hz=12.0, cut_lo=110, cut_hi=1800, drive=1.5), 1402, 0.38)
 add("music", warm_pad(CHORDS["Am"], 44 / FPS, attack=0.08, release=0.5), 1402, 0.13)
-for i, frame in enumerate((1402, 1408, 1414, 1420, 1426, 1432)):
+for i, frame in enumerate((1402, 1407, 1412, 1417, 1422, 1427)):
     add("music", pluck((880.0, 1046.5, 1318.5, 1046.5, 880.0, 659.25)[i], cutoff=2800.0), frame, 0.08, pan=0.2 if i % 2 else -0.2)
-for off in (0, 6):
+for off in (0, 5):
     place_kick(1402 + off, 1.0)
-place_snare(1414, 0.5)
+place_snare(1412, 0.5)
 for j, frame in enumerate((1402, 1405, 1408)):
     add("music", stab([110.0 * (1.0, 1.5, 2.0)[j], 164.81 * (1.0, 1.5, 2.0)[j]], dur=0.2, cutoff=4200), frame, 0.2)
     mark(frame, f"claim line {j + 1}", 0.9)
 
 # 1496 brand motif
-add("sfx", whoosh(0.24, 500.0, 3000.0), 1490, 0.08)
+add("sfx", tick(2100.0, 0.04), 1490, 0.08)
 for j, frame in enumerate((1496, 1498, 1500, 1502)):
     add("music", blip((523.25, 659.25, 783.99, 1046.5)[j], dur=0.1), frame, 0.13)
 add("music", stab([220.0, 261.63, 329.63], dur=0.35, cutoff=3000), 1496, 0.16)
 mark(1496, "brand", 0.8)
 
 # build to final hit
-snare_roll(1560, 1582, 4.0, 2.0, 0.13)
-add("sfx", riser(22 / FPS, 260.0, 3800.0), 1562, 0.22)
-add("bass", wobble(55.0, 20 / FPS, lfo_hz=5.0, cut_lo=90, cut_hi=1200, drive=1.5), 1564, 0.32)
+snare_roll(1568, 1582, 3.0, 1.5, 0.13)
+add("sfx", riser(14 / FPS, 350.0, 3800.0), 1570, 0.22)
+add("bass", wobble(55.0, 20 / FPS, lfo_hz=12.0, cut_lo=90, cut_hi=1600, drive=1.5), 1564, 0.32)
 
 switch(1584, 1.5, "final hit")
 add("sfx", impact(dur=2.2, sub=1.2, bright=0.4), 1584, 0.55)
@@ -906,15 +957,52 @@ mix = mix - low + low.mean(axis=0, keepdims=True)
 mix = stereo_fft_filter(mix, lo=24.0, slope=2.0)
 mix = stereo_fft_filter(mix, hi=16000.0, slope=1.0)
 
-# master: gentle saturation, normalise, fades
+# master: gentle saturation, section loudness ladder, normalise, fades
 mix = mix / (np.max(np.abs(mix)) + 1e-9) * 1.05
 mix = np.tanh(mix)
+
+SECTION_GAIN = ((120, 330, 1.07), (330, 576, 1.0), (576, 1266, 1.26), (1266, 1600, 1.32))
+section_env = np.ones(N, dtype=np.float64)
+for start_frame, end_frame, gain in SECTION_GAIN:
+    section_env[smp(start_frame) : smp(end_frame)] = gain
+smooth = int(0.004 * SR)
+section_env = np.convolve(section_env, np.ones(smooth) / smooth, mode="same")
+mix *= section_env[None, :]
+
 mix = mix / (np.max(np.abs(mix)) + 1e-9) * 0.93
 
 fade_in = int(0.008 * SR)
 mix[:, :fade_in] *= np.linspace(0.0, 1.0, fade_in)
 fade_out = int(0.5 * SR)
 mix[:, -fade_out:] *= np.linspace(1.0, 0.0, fade_out) ** 1.5
+
+# hard-cut transitions: 2-frame dropouts before every cut, 1-frame before beat switches
+CUT_GAPS = (
+    (118, 2), (168, 2), (220, 2), (276, 2), (328, 2), (418, 2), (434, 2),
+    (574, 2), (1084, 2), (1174, 2), (1264, 2), (1400, 2), (1582, 2),
+)
+BEAT_GAPS = tuple(
+    (frame, 1) for frame in (610, 694, 742, 790, 832, 874, 910, 946, 976, 1000, 1024, 1048)
+)
+
+
+def apply_gates(sig: np.ndarray, gates: tuple[tuple[float, float], ...], ramp: float = 0.0015) -> np.ndarray:
+    r = int(ramp * SR)
+    for frame, length in gates:
+        s = smp(frame)
+        e = min(N, smp(frame + length))
+        if e <= s:
+            continue
+        seg = np.zeros(e - s)
+        k = min(r, (e - s) // 2)
+        if k > 0:
+            seg[:k] = np.linspace(1.0, 0.0, k)
+            seg[-k:] = np.linspace(0.0, 1.0, k)
+        sig[:, s:e] *= seg
+    return sig
+
+
+mix = apply_gates(mix, CUT_GAPS + BEAT_GAPS)
 
 # --------------------------------------------------------------------------- output
 
@@ -955,6 +1043,13 @@ MAP_PATH.write_text(
             "duration": DURATION,
             "sampleRate": SR,
             "seed": SEED,
+            "sections": [
+                {"name": "logo", "from": 0, "to": 120, "bpm": 150},
+                {"name": "manifesto", "from": 120, "to": 330, "bpm": 150},
+                {"name": "break", "from": 330, "to": 576, "bpm": 150},
+                {"name": "showreel", "from": 576, "to": 1266, "bpm": 150},
+                {"name": "join", "from": 1266, "to": 1600, "bpm": 180},
+            ],
             "events": EVENTS,
         },
         ensure_ascii=False,
