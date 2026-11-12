@@ -666,7 +666,7 @@
   .final-questions{margin-top:22px;font-family:var(--display);font-weight:600;font-size:24px;color:#e6e6f8;letter-spacing:-.02em}
 
   /* ---------- revision 3 ---------- */
-  .slide[data-num]::after{content:attr(data-num) ' / 11';}
+  .slide[data-num]::after{content:attr(data-num) ' / 12';}
 
   /* team: one handle, names aligned */
   .member-v{justify-content:flex-start;padding:26px 20px}
@@ -801,6 +801,32 @@
   @keyframes hubPulse{0%,100%{box-shadow:0 0 40px rgba(138,92,246,.12),0 16px 40px rgba(0,0,0,.3)}50%{box-shadow:0 0 80px rgba(138,92,246,.26),0 16px 40px rgba(0,0,0,.3)}}
   .arch-note{text-align:center;font-size:13.5px;color:var(--dim);margin-top:2px}
 
+  /* AI tools */
+  .ai-layout{display:grid;grid-template-columns:1fr 1fr;gap:22px;margin-top:24px;flex:0 0 auto}
+  .ai-card{padding:0;display:flex;flex-direction:column;overflow:hidden;min-height:380px}
+  .ai-head{display:flex;align-items:center;justify-content:space-between;padding:13px 18px;background:rgba(10,10,26,.7);border-bottom:1px solid var(--line-soft)}
+  .ai-harness{font-family:var(--mono);font-size:11px;letter-spacing:.16em;color:var(--cyan)}
+  .ai-card.gpt .ai-harness{color:#c3adff}
+  .ai-body{padding:24px 26px;display:flex;flex-direction:column;gap:12px;flex:1}
+  .ai-model{font-family:var(--display);font-size:34px;font-weight:700;line-height:1.1;letter-spacing:-.03em}
+  .ai-role{font-family:var(--mono);font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--dim)}
+  .ai-work{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:9px}
+  .ai-work li{font-size:16px;line-height:1.35;color:#d0d0e8;display:flex;gap:10px;align-items:flex-start}
+  .ai-work li::before{content:'✓';color:var(--cyan);font-family:var(--mono);font-size:13px;line-height:1.5}
+  .ai-card.gpt .ai-work li::before{color:#c3adff}
+  .ai-term{margin-top:auto;font-family:var(--mono);font-size:12px;line-height:1.4;color:#8f8fb8;background:#050510;border:1px solid var(--line-soft);border-radius:8px;padding:10px 12px}
+  .ai-term b{color:var(--cyan);font-weight:500}
+  .ai-local{margin-top:16px;border:1px solid var(--line);border-radius:14px;padding:14px 18px;background:rgba(10,10,26,.55)}
+  .al-head{font-family:var(--mono);font-size:10px;letter-spacing:.18em;color:var(--dim);margin-bottom:12px}
+  .al-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  .al-item{border-left:2px solid rgba(15,241,202,.4);padding-left:14px}
+  .al-item:nth-child(2){border-color:rgba(138,92,246,.5)}
+  .al-tag{font-family:var(--mono);font-size:9px;letter-spacing:.14em;color:var(--cyan)}
+  .al-item:nth-child(2) .al-tag{color:#c3adff}
+  .al-name{font-family:var(--display);font-size:19px;font-weight:600;margin:4px 0 3px;letter-spacing:-.02em}
+  .al-item p{font-size:14px;line-height:1.4;color:var(--muted);margin:0}
+  .ai-note{text-align:center;font-size:14px;color:var(--dim);margin-top:12px}
+
 </style>
 </head>
 <body>
@@ -920,7 +946,68 @@
     <aside class="notes">25 секунд. Пять человек. Не перечисляйте всё — назовите роли и передайте слово дальше. Если кто-то из команды в зале, кивните.</aside>
   </section>
 
-  <section class="slide" data-title="Постановка задачи" data-num="03">
+  <section class="slide" data-title="AI-инструменты" data-num="03">
+    <h2 class="title anim" style="--d:0">AI-инструменты</h2>
+    <p class="lead anim" style="--d:1">Облачные и локальные модели — разные зоны ответственности.</p>
+
+    <div class="ai-layout">
+      <div class="card ai-card ds anim" style="--d:2">
+        <div class="ai-head">
+          <div class="dots"><i></i><i></i><i></i></div>
+          <span class="ai-harness">OPENCODE</span>
+        </div>
+        <div class="ai-body">
+          <div class="ai-model">DeepSeek V4.1 Flash</div>
+          <div class="ai-role">Ассистент и кодер</div>
+          <ul class="ai-work">
+            <li>Фаззер языка</li>
+            <li>Стресс-тестирование</li>
+            <li>Агентный плейтест</li>
+            <li>Фронтенд</li>
+          </ul>
+          <div class="ai-term"><b>&gt;</b> opencode --model deepseek-v4.1-flash</div>
+        </div>
+      </div>
+
+      <div class="card violet ai-card gpt anim" style="--d:3">
+        <div class="ai-head">
+          <div class="dots"><i></i><i></i><i></i></div>
+          <span class="ai-harness">CODEX</span>
+        </div>
+        <div class="ai-body">
+          <div class="ai-model">GPT-6.1 Sol</div>
+          <div class="ai-role">Бэкенд и сервер</div>
+          <ul class="ai-work">
+            <li>API</li>
+            <li>Воркеры и очередь</li>
+            <li>Конфигурация сервера и развертывание</li>
+          </ul>
+          <div class="ai-term"><b>&gt;</b> codex --model gpt-6.1-sol</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="ai-local anim" style="--d:4">
+      <div class="al-head">ЛОКАЛЬНЫЕ МОДЕЛИ</div>
+      <div class="al-grid">
+        <div class="al-item">
+          <div class="al-tag">MUSIC · UNSLOTH</div>
+          <div class="al-name">ACE-Step 1.5 + Stable Audio 3</div>
+          <p>Генерация музыки через Unsloth.</p>
+        </div>
+        <div class="al-item">
+          <div class="al-tag">LANGUAGE · PI</div>
+          <div class="al-name">Qwen 3.8 Flash</div>
+          <p>Ревью спецификации LWLang и помощь в разработке.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="ai-note anim" style="--d:5">Модели ускоряли работу; архитектура, приоритеты и приёмка — за командой.</div>
+    <aside class="notes">25 секунд. DeepSeek V4.1 Flash в OpenCode помогал с фаззером, стресс-тестами, агентным плейтестом и фронтендом. GPT-6.1 Sol в Codex — бэкенд, воркеры и серверные функции. Локально: ACE-Step 1.5 и Stable Audio 3 с Unsloth для музыки, Qwen 3.8 Flash в Pi — ревью спецификации и небольшие задачи разработки. Решения и проверка остались за командой.</aside>
+  </section>
+
+  <section class="slide" data-title="Постановка задачи" data-num="04">
     <h2 class="title anim" style="--d:0">Постановка задачи</h2>
     <p class="lead anim" style="--d:1">Спроектировать язык с Действительно Глобальным Пространством Имён™ и платформу, где решения конкурируют в одном мире.</p>
 
@@ -960,7 +1047,7 @@
     <aside class="notes">40 секунд. Ключевая идея: переменные общие для всех. Пример A/B показывает, почему решение A меняет результат после публикации B. Дальше — как это работает на платформе.</aside>
   </section>
 
-  <section class="slide" data-title="Как устроена игра" data-num="04">
+  <section class="slide" data-title="Как устроена игра" data-num="05">
     <h2 class="title anim" style="--d:0">Как устроена игра</h2>
 
     <div class="game-layout">
@@ -999,7 +1086,7 @@
     <aside class="notes">35 секунд. Четыре шага: выбрать, написать, отправить, опубликовать. Внизу — главное следствие: изменение общего имени запускает перепроверку и пересчёт рейтинга.</aside>
   </section>
 
-  <section class="slide" data-title="Язык LWLang" data-num="05">
+  <section class="slide" data-title="Язык LWLang" data-num="06">
     <h2 class="title anim" style="--d:0">Язык LWLang</h2>
 
     <div class="lang-layout">
@@ -1041,7 +1128,7 @@
     <aside class="notes">45 секунд. Главное — глобальность: все имена общие. Дальше четыре особенности: нет исключений, переопределяемые операции, память return и comefrom. Не читайте всё дословно.</aside>
   </section>
 
-  <section class="slide" data-title="Что получилось" data-num="06">
+  <section class="slide" data-title="Что получилось" data-num="07">
     <h2 class="title anim" style="--d:0">Что получилось</h2>
 
     <div class="ach-layout">
@@ -1086,7 +1173,7 @@
     <aside class="notes">35 секунд. Пять пунктов из брифа. Скриншот — реальный прод, не макет. Звёздочка у «рабочей платформы» — честная сноска про Docker.</aside>
   </section>
 
-  <section class="slide" data-title="Что не получилось" data-num="07">
+  <section class="slide" data-title="Что не получилось" data-num="08">
     <h2 class="title anim" style="--d:0">Что не получилось</h2>
 
     <div class="fail-grid">
@@ -1122,7 +1209,7 @@
     <aside class="notes">30 секунд. Не оправдывайтесь. Все метрики производительности — только здесь. Главное: узкое место не HTTP, а сравнение решений. Playtest и ивенты честно в «не сделано».</aside>
   </section>
 
-  <section class="slide" data-title="Архитектура" data-num="08">
+  <section class="slide" data-title="Архитектура" data-num="09">
     <h2 class="title anim" style="--d:0">Архитектура</h2>
     <p class="lead anim" style="--d:1"><br/></p>
 
@@ -1197,7 +1284,7 @@
     <aside class="notes">45 секунд. Ведите по стрелкам сверху вниз. Главное: границы доверия, «данные, не код» и стек. PostgreSQL — и база, и очередь.</aside>
   </section>
 
-  <section class="slide arch" data-title="Поток данных" data-num="09">
+  <section class="slide arch" data-title="Поток данных" data-num="10">
     <h2 class="title anim" style="--d:0">Поток данных</h2>
 
     <div class="arch-canvas anim" style="--d:1">
@@ -1275,7 +1362,7 @@
     <aside class="notes">40 секунд. Ведите по потоку: браузер → API → PostgreSQL → воркеры → песочница → PostgreSQL. Публикация меняет мир, запускает перепроверку и пересчёт рейтинга. PostgreSQL — единственный stateful-сервис.</aside>
   </section>
 
-  <section class="slide" data-title="Дополнительные задачи" data-num="10">
+  <section class="slide" data-title="Дополнительные задачи" data-num="11">
     <h2 class="title anim" style="--d:0">Сделано в процессе</h2>
     <p class="lead anim" style="--d:1"><br/></p>
 
@@ -1310,7 +1397,7 @@
     <aside class="notes">35 секунд. Три отдельных проекта. Фаззер ищет расхождения с моделью. Стресс-тест проверяет нагрузку, его метрики — на слайде «Что не получилось». Агентный плейтест — отдельная история: cat атаковал, zero защищался, третий агент знал всю спеку. Cat выиграл, все завели ботов и заняли имена.</aside>
   </section>
 
-  <section class="slide plain" data-title="Итоги" data-num="11">
+  <section class="slide plain" data-title="Итоги" data-num="12">
     <div class="final-layout">
       <div>
         <h2 class="final-title anim" style="--d:0">Итоги</h2>
