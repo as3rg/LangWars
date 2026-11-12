@@ -396,6 +396,12 @@ export const handlers = [
     return ok(user)
   }),
 
+  http.get('/api/admin/news', async ({ request }) => {
+    const admin = requireAdmin(request)
+    if (admin instanceof Response) return admin
+    return ok(getDb().news)
+  }),
+
   http.post('/api/admin/news', async ({ request }) => {
     const admin = requireAdmin(request)
     if (admin instanceof Response) return admin

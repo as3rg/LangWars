@@ -56,17 +56,25 @@ export function useNews() {
   return useQuery({ queryKey: qk.news, queryFn: api.news })
 }
 
+export function useAdminNews() {
+  const token = useAuthStore((state) => state.token)
+  const role = useAuthStore((state) => state.user?.role)
+  return useQuery({ queryKey: ['admin', 'news', token, role], queryFn: api.adminNews, enabled: Boolean(token) && role === 'admin', retry: false })
+}
+
 export function useTasks() {
   const { locale } = useLocale()
   const token = useAuthStore((state) => state.token)
-  return useQuery({ queryKey: [...qk.tasks, token], queryFn: api.tasks, refetchInterval: 15_000, select: (tasks) => tasks.map((task) => localizeTask(task, locale)) })
+  const role = useAuthStore((state) => state.user?.role)
+  return useQuery({ queryKey: [...qk.tasks, token, role], queryFn: api.tasks, refetchInterval: 15_000, select: (tasks) => tasks.map((task) => localizeTask(task, locale)) })
 }
 
 export function useTask(id: string | undefined) {
   const { locale } = useLocale()
   const token = useAuthStore((state) => state.token)
+  const role = useAuthStore((state) => state.user?.role)
   return useQuery({
-    queryKey: [...qk.task(id ?? ''), token],
+    queryKey: [...qk.task(id ?? ''), token, role],
     queryFn: () => api.task(id!),
     enabled: Boolean(id),
     refetchInterval: 15_000,
@@ -122,21 +130,26 @@ export function useSubmissionRechecks(id: string | null, scope: 'target' | 'caus
 }
 
 export function useInsights(taskId: string | undefined, enabled: boolean) {
+  const token = useAuthStore((state) => state.token)
+  const role = useAuthStore((state) => state.user?.role)
   return useQuery({
-    queryKey: qk.insights(taskId ?? ''),
+    queryKey: [...qk.insights(taskId ?? ''), token, role],
     queryFn: () => api.insights(taskId!),
     enabled: Boolean(taskId) && enabled,
   })
 }
 
 export function useRatingTables() {
-  return useQuery({ queryKey: qk.ratingTables, queryFn: api.ratingTables })
+  const token = useAuthStore((state) => state.token)
+  const role = useAuthStore((state) => state.user?.role)
+  return useQuery({ queryKey: [...qk.ratingTables, token, role], queryFn: api.ratingTables })
 }
 
 export function useRating(table: string, search = '') {
   const token = useAuthStore((state) => state.token)
+  const role = useAuthStore((state) => state.user?.role)
   return useQuery({
-    queryKey: [...qk.rating(table), search, token],
+    queryKey: [...qk.rating(table), search, token, role],
     queryFn: () => api.rating(table, search),
     enabled: Boolean(table),
     refetchInterval: 15_000,

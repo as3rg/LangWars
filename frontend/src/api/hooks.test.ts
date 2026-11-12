@@ -2,7 +2,7 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
-import { useAllSubmissions, useRating, useSubmissionDetail, useSubmissionRechecks, useTask, useTaskSubmissions, useTasks } from './hooks'
+import { useAdminNews, useAllSubmissions, useInsights, useRating, useRatingTables, useSubmissionDetail, useSubmissionRechecks, useTask, useTaskSubmissions, useTasks } from './hooks'
 import { useAuthStore } from '@/store/auth'
 import { useLocale } from '@/lib/i18n'
 import type { User } from './types'
@@ -22,6 +22,7 @@ vi.mock('@/store/auth', async (original) => {
 function Capture() {
   useTasks(); useTask('sum'); useSubmissionDetail('private');
   useTaskSubmissions('sum', 'mine'); useAllSubmissions(); useRating('global');
+  useRatingTables(); useInsights('sum', true); useAdminNews()
   useSubmissionRechecks('private', 'caused', true)
   return null
 }
@@ -50,7 +51,7 @@ describe('account-specific query data', () => {
   it('drops privileged submission data on a role change but retains keys when only locale changes', () => {
     session('same', 'admin'); const admin = keys()
     session('same', 'user'); const player = keys()
-    for (const index of [2, 3, 4, 6]) expect(player[index]).not.toEqual(admin[index])
+    player.forEach((key, index) => expect(key).not.toEqual(admin[index]))
     useLocale.setState({ locale: 'ru' })
     expect(keys()).toEqual(player)
   })

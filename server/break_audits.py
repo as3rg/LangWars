@@ -14,7 +14,8 @@ MAX_PENDING_AUDITS = 32
 
 
 def fingerprint(task):
-    return hashlib.sha256(dumps({"tests": task["tests"], "timeLimitMs": task.get("timeLimitMs", 1000)}).encode()).hexdigest()
+    return hashlib.sha256(dumps({"tests": task["tests"], "timeLimitMs": task.get("timeLimitMs", 1000),
+                                "allowedKeywords": task.get("allowedKeywords")}).encode()).hexdigest()
 
 
 def capacity_available(tx):

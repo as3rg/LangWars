@@ -130,7 +130,7 @@ class Store:
             conn.close()
 
     def initialize(self):
-        from .seed import initial_world, initial_tasks, initial_news, OPERATIONS, LANGUAGE_REVISION, OVERRIDE_DEFAULTS_REVISION
+        from .seed import initial_world, initial_tasks, initial_news, refresh_seed_language_copy, OPERATIONS, LANGUAGE_REVISION, OVERRIDE_DEFAULTS_REVISION
         with self.transaction() as tx:
             if self.postgres:
                 tx.execute("SELECT pg_advisory_xact_lock(82317102)")
@@ -200,6 +200,11 @@ class Store:
                     tx.save_world(world)
                 for seeded in initial_tasks():
                     task = tx.get("tasks", seeded["id"])
+                    if task:
+                        before_copy = dumps(task)
+                        refresh_seed_language_copy(task, seeded)
+                        if dumps(task) != before_copy:
+                            tx.put("tasks", task["id"], task)
                     if task and not task.get("translations") and all(task.get(key) == seeded.get(key) for key in ("title", "statement", "constraints", "examples", "tests")):
                         task["translations"] = seeded["translations"]
                         tx.put("tasks", task["id"], task)

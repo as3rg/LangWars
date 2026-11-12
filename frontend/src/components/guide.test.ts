@@ -12,7 +12,8 @@ describe('language help', () => {
   it.each(['en', 'ru'] as const)('teaches the shared world progressively in %s without hiding the guide', (locale) => {
     useLocale.setState({ locale })
     const html = renderToStaticMarkup(createElement(MemoryRouter, null, createElement(LanguageGuide)))
-    expect(html).toContain(locale === 'en' ? 'All names are global' : 'Все имена глобальные')
+    expect(html).toContain(locale === 'en' ? 'Parameters shadow shared names' : 'Параметры затеняют общие имена')
+    expect(html).toContain(locale === 'en' ? 'contains overrides are disabled by default' : 'Переопределение contains по умолчанию отключено')
     expect(html).toContain('let shared = 10;')
     expect(html).toContain('let shared = 99;')
     expect(html).toContain('__builtin_eq__')

@@ -224,3 +224,50 @@ Resource and moderation boundary
   separately checks resulting published string values, covering concatenation of
   blocked terms. This is configurable substring filtering, not semantic moderation
   or a promise to detect every evasion.
+
+Challenge policies and publication budgets (2026-11)
+
+- A task's name publication limit counts distinct names written by its current
+  submission, rather than the union of that player's earlier submissions. The
+  exact candidate includes function definitions, explicit variable writes,
+  mutations of inherited values, and remembered results written by function
+  calls. A function definition and its remembered result share one name. Untouched
+  inherited remembered results are not republished. Each test's candidate must
+  satisfy the limit; as before, the first test supplies the published state.
+  Unexecuted variable declarations, identifier references, labels and parameter
+  bindings alone do not publish names. All custom identifiers still undergo
+  dictionary/name-length checks and count toward the separate cumulative account
+  vocabulary budget. The judge returns `names` for that vocabulary and
+  `publishedNames` for the current publication.
+- Parameter bindings occupy the same mutable runtime namespace as variables and
+  functions, and can shadow either during the test. They are not lexical locals:
+  another helper can read or replace them. Binding an argument alone does not
+  publish its value, including when it shadows an inherited variable. An explicit
+  assignment or `let` write to a parameter name does publish that name. Function
+  declarations and `let` declarations remain globally unique within one program;
+  parameter names may reuse them or one another across different functions.
+- `allowed_keywords: null` leaves all supported keywords available. An explicit
+  list permits only selected `let`, `return`, `if`, `else`, `while`, `comefrom`,
+  `and`, `or` and `not`. Function declaration syntax, annotations, type names,
+  assignments, labels and symbolic operators are outside this policy. Thus a
+  challenge allowing only `comefrom` control flow normally permits `return` and
+  optionally `let` as well. Strings/comments are not syntax. New source is
+  checked in full, including unused helpers and unreachable branches. Entering
+  an inherited function checks its entire body, and inherited `comefrom` redirects
+  are guarded at execution. Dormant inherited functions do not reject unrelated
+  submissions. Contract probes enforce the world's contracts independently of
+  task keyword restrictions; the actual challenge execution retains the guards.
+- The optional task setting `datacenterFire` defaults off and is an editor-only
+  challenge. While a signed-in player's editor is focused and the page is visible,
+  a random timer removes one random non-empty physical line from the current
+  draft. The deletion uses an ordinary editor transaction, participates in undo,
+  and follows normal draft persistence. Pausing or leaving the editor cancels its
+  timer. It does not alter source already captured by a run or submission.
+  LangWarsScript parsing, execution, contract validation, publication and rechecks
+  all use the submitted source unchanged. Workers do not receive any fire option
+  or seed, and toggling this UI modifier does not invalidate causal comparisons.
+- `Choose your button` is expressible with dictionary `["red", "blue"]`, maximum
+  name length 4 (excluding compound names), and one published name. For example,
+  `@solution fn red(blue){return blue;}` publishes only `red`; its argument binding
+  `blue` remains private to execution. These settings alone constrain names, not
+  string contents or all source words.

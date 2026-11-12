@@ -34,9 +34,10 @@ import { countBySeverity } from '@/lwlang'
 import { formatLwlang } from '@/lib/format'
 import { createCompletions, createLwlangLanguage } from './language'
 import { lwEditorExtensions } from './theme'
+import { installEditorFire } from './fire'
 import { DiagnosticList } from '@/components/DiagnosticList'
 import { GlowButton } from '@/components/ui'
-import { toast } from '@/store/ui'
+import { toast, useToastStore } from '@/store/ui'
 
 interface LwEditorProps {
   code: string
@@ -48,6 +49,7 @@ interface LwEditorProps {
   onSubmit?: () => void
   running?: boolean
   submitting?: boolean
+  datacenterFire?: boolean
 }
 
 export function LwEditor({
@@ -60,6 +62,7 @@ export function LwEditor({
   onSubmit,
   running = false,
   submitting = false,
+  datacenterFire = false,
 }: LwEditorProps) {
   useLocale()
   const hostRef = useRef<HTMLDivElement>(null)
@@ -125,6 +128,14 @@ export function LwEditor({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [version, addonKey])
+
+  useEffect(() => {
+    const view = viewRef.current
+    if (!datacenterFire || !view) return
+    return installEditorFire(view, (line) => {
+      useToastStore.getState().push('info', t('Fire burned line {number}.', { number: line }))
+    })
+  }, [datacenterFire, version, addonKey])
 
   useEffect(() => {
     codeRef.current = code

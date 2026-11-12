@@ -15,6 +15,7 @@ from pathlib import Path
 from .auth import prohibited
 from .store import Store, dumps, iso, uid
 from .scoring import refresh_ratings
+from .task_visibility import task_visible
 
 log = logging.getLogger("langwars.worker")
 
@@ -66,7 +67,8 @@ def sandbox(payload, timeout=None):
 def options_for(world, task):
     settings = world["settings"]
     return {"allowed_words": task.get("allowedWords") if task.get("allowedWords") is not None else settings["allowedWords"],
-            "max_name_length": settings["maxNameLength"],
+            "max_name_length": task.get("maxNameLength") if task.get("maxNameLength") is not None else settings["maxNameLength"],
+            "allowed_keywords": task.get("allowedKeywords"),
             "deny_words": settings["denyWords"], "permitted_overrides": settings["permittedOverrides"],
             "max_overrides": task.get("coreOverrideLimit") if task.get("coreOverrideLimit") is not None else settings["defaultCoreOverrideLimit"],
             "max_names": task.get("namePublishLimit") if task.get("namePublishLimit") is not None else settings.get("defaultTaskNameLimit", 30),
@@ -97,7 +99,7 @@ def effective_changes(snapshot, changes):
 
 def redact_tests(result, task, admin=False):
     clean = copy.deepcopy(result)
-    for key in ("changes", "dependencies", "names", "snapshot"):
+    for key in ("changes", "dependencies", "names", "publishedNames", "snapshot"):
         clean.pop(key, None)
     for index, test in enumerate(clean.get("tests", [])):
         if not admin and index < len(task["tests"]) and task["tests"][index].get("hidden"):
@@ -247,6 +249,9 @@ def process_job(store, job):
             if not task or not user or user.get("banned"):
                 finish(tx, job, error={"code": "UNAVAILABLE", "message": "The task or account is no longer available"})
                 return
+            if job["mode"] != "recheck" and not task_visible(tx, task, user):
+                finish(tx, job, error={"code": "UNAVAILABLE", "message": "The task is no longer available"})
+                return
             sub = tx.get("submissions", job.get("submissionId", "")) if job["mode"] == "recheck" else None
             if job["mode"] == "recheck" and not sub:
                 finish(tx, job, error={"code": "NOT_FOUND", "message": "Submission no longer exists"})
@@ -278,8 +283,8 @@ def process_job(store, job):
         names = set(result.get("names", []))
         if not sub and len(set(user.get("claimedNames", [])) | names) > user["nameLimit"]:
             result = failure(f"This program exceeds your limit of {user['nameLimit']} unique names", code="NAME_LIMIT")
-        task_names = set(user.get("taskClaimedNames", {}).get(task["id"], []))
-        if not sub and len(task_names | names) > options["max_names"]:
+        published_names = set(result.get("publishedNames", changed_names(result.get("changes", {}))))
+        if not sub and len(published_names) > options["max_names"]:
             result = failure(f"This task permits at most {options['max_names']} unique published names", code="TASK_NAME_LIMIT")
         if job["mode"] == "submit" and result.get("status") == "OK":
             errors = publication_errors(world, result, task)
@@ -303,6 +308,10 @@ def process_job(store, job):
             latest_user = tx.get("users", user["id"])
             if not latest_user or latest_user.get("banned"):
                 finish(tx, job, error={"code": "UNAVAILABLE", "message": "Account is no longer available"})
+                return
+            latest_task = tx.get("tasks", task["id"])
+            if not latest_task or (not sub and not task_visible(tx, latest_task, latest_user)):
+                finish(tx, job, error={"code": "UNAVAILABLE", "message": "The task is no longer available"})
                 return
             if job["mode"] == "run":
                 finish(tx, job, result=redact_tests(result, {**task, "tests": tests}))
@@ -339,15 +348,15 @@ def process_job(store, job):
                           "durationMs": sum(t.get("durationMs", 0) for t in result["tests"]),
                           "testsPassed": sum(bool(t.get("passed")) for t in result["tests"]), "testsTotal": len(result["tests"]),
                           "tests": clean["tests"], "diagnostics": result["diagnostics"], "stdout": result["stdout"],
-                          "dependencies": result.get("dependencies", []), "names": sorted(names), "everAccepted": result["status"] == "OK",
+                          "dependencies": result.get("dependencies", []), "names": sorted(names), "publishedNames": sorted(published_names), "everAccepted": result["status"] == "OK",
                           "worldVersion": latest["version"], "penaltyPoints": job.get("penaltyPoints", 0), "verdictStatus": result["status"], "active": False,
                           "jobId": job["id"], "publishedAt": iso()}
             if result["status"] == "OK":
                 # Quotas and account state can change independently of the namespace version.
                 if len(set(latest_user.get("claimedNames", [])) | names) > latest_user["nameLimit"]:
                     submission.update(status="CE", verdictStatus="CE", score=0, everAccepted=False, diagnostics=[diagnostic("Your unique-name limit changed during execution", "NAME_LIMIT")])
-                elif len(set(latest_user.get("taskClaimedNames", {}).get(task["id"], [])) | names) > options["max_names"]:
-                    submission.update(status="CE", verdictStatus="CE", score=0, everAccepted=False, diagnostics=[diagnostic("This task's published-name budget is exhausted", "TASK_NAME_LIMIT")])
+                elif len(published_names) > options["max_names"]:
+                    submission.update(status="CE", verdictStatus="CE", score=0, everAccepted=False, diagnostics=[diagnostic("This submission exceeds the task's published-name limit", "TASK_NAME_LIMIT")])
                 else:
                     previous_world = copy.deepcopy(latest)
                     changes = result.get("changes", {})
@@ -369,7 +378,6 @@ def process_job(store, job):
                         latest["owners"][name] = submission_id
                         latest.setdefault("ownerUsers", {})[name] = user["id"]
                     latest_user["claimedNames"] = sorted(set(latest_user.get("claimedNames", [])) | names)
-                    latest_user.setdefault("taskClaimedNames", {})[task["id"]] = sorted(set(latest_user.get("taskClaimedNames", {}).get(task["id"], [])) | names)
                     latest_user.get("solvedOverrides", {}).pop(task["id"], None)
                     tx.put("users", user["id"], latest_user)
                     tx.save_world(latest)

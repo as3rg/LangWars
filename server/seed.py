@@ -23,7 +23,7 @@ def initial_world():
 
 
 TASKS_RU = {
-    "shared-sum": ("Общая сумма", "Верните сумму двух целых аргументов. При выходе за диапазон от −1000000 до 1000000 числа циклически переносятся на другой конец диапазона. Другие игроки могут менять значения ваших глобальных параметров.", []),
+    "shared-sum": ("Общая сумма", "Верните сумму двух целых аргументов. При выходе за диапазон от −1000000 до 1000000 числа циклически переносятся на другой конец диапазона. Параметры затеняют общие значения на время вызова и сами по себе не публикуются.", []),
     "cyclic-access": ("По кругу списка", "Верните элемент списка по переданному индексу. Индексы циклические: после последнего элемента идёт первый. Для пустого списка верните целый ноль.", []),
     "list-sum": ("Сумма в меняющемся мире", "Верните сумму всех целых чисел в списке. Сумма пустого списка равна нулю. Арифметика и преобразования подчиняются правилам текущего общего мира.", ["Список содержит не более 100 целых чисел."]),
     "mirror-text": ("Зеркальный текст", "Верните входную строку в обратном порядке символов. Символом считается кодовая точка Unicode, в том числе эмодзи. Пустая строка остаётся пустой.", ["Строка содержит не более 100 символов."]),
@@ -42,13 +42,13 @@ def task(slug, title, difficulty, score, statement, parameters, tests, types, en
     annotation = "<" + ", ".join(types) + "> " if types else ""
     starter = f"@solution\nfn {annotation}{entry}({parameters}) {{\n    // Write your solution here.\n    return 0;\n}}\n"
     public_tests = [test for test in tests if not test.get("hidden")]
-    common_constraints = ["Every test starts from the same shared world snapshot.", "Exactly one @solution function is required.", "All names, including parameters, are global."]
+    common_constraints = ["Every test starts from the same shared world snapshot.", "Exactly one @solution function is required.", "Variables and helper functions are global. Parameters shadow shared values during calls and do not publish unless explicitly assigned."]
     examples = [{"input": json.dumps(test["input"], ensure_ascii=False), "output": json.dumps(test["expected"], ensure_ascii=False)} for test in public_tests]
     translations = {"en": {"title": title, "statement": statement, "constraints": [*common_constraints, *constraints], "examples": examples}}
     if slug in TASKS_RU:
         ru_title, ru_statement, ru_constraints = TASKS_RU[slug]
         translations["ru"] = {"title": ru_title, "statement": ru_statement,
-                              "constraints": ["Каждый тест начинается с одного и того же снимка общего мира.", "Нужна ровно одна функция с аннотацией @solution.", "Все имена, включая параметры, глобальные.", *ru_constraints],
+                              "constraints": ["Каждый тест начинается с одного и того же снимка общего мира.", "Нужна ровно одна функция с аннотацией @solution.", "Переменные и вспомогательные функции глобальные. Параметры затеняют общие значения на время вызова и публикуются только при явном присваивании.", *ru_constraints],
                               "examples": examples}
     return {"id": slug, "slug": slug, "title": title, "difficulty": difficulty,
             "score": score, "tags": ["shared-state", difficulty], "solvedBy": 0,
@@ -56,13 +56,38 @@ def task(slug, title, difficulty, score, statement, parameters, tests, types, en
             "constraints": [*common_constraints, *constraints], "translations": translations,
             "examples": examples,
             "starterCode": starter, "entryPoint": entry, "timeLimitMs": 1000,
-            "coreOverrideLimit": None, "namePublishLimit": None, "allowedWords": None, "tests": tests}
+            "coreOverrideLimit": None, "namePublishLimit": None, "allowedWords": None, "visibility": "visible",
+            "eventId": None, "maxNameLength": None, "allowedKeywords": None, "datacenterFire": False, "tests": tests}
+
+
+def refresh_seed_language_copy(task, seeded):
+    """Replace only recognized stock copy; keep administrator-authored content."""
+    if task.get("tests") != seeded["tests"]:
+        return
+    old_constraints = {
+        "en": "All names, including parameters, are global.",
+        "ru": "Все имена, включая параметры, глобальные.",
+    }
+    old_statements = {
+        "en": "Return the sum of the two integer arguments. Arithmetic wraps in the range -1000000 through 1000000. Your parameter names can be changed by other players.",
+        "ru": "Верните сумму двух целых аргументов. При выходе за диапазон от −1000000 до 1000000 числа циклически переносятся на другой конец диапазона. Другие игроки могут менять значения ваших глобальных параметров.",
+    }
+    copies = [(task, seeded, "en")]
+    copies.extend((translation, seeded["translations"][locale], locale)
+                  for locale, translation in task.get("translations", {}).items()
+                  if locale in seeded["translations"])
+    for current, target, locale in copies:
+        legacy = [old_constraints[locale] if index == 2 else value for index, value in enumerate(target["constraints"])]
+        if current.get("constraints") == legacy:
+            current["constraints"] = list(target["constraints"])
+        if seeded["id"] == "shared-sum" and current.get("statement") == old_statements[locale]:
+            current["statement"] = target["statement"]
 
 
 def initial_tasks():
     return [
         task("shared-sum", "A shared sum", "easy", 50,
-             "Return the sum of the two integer arguments. Arithmetic wraps in the range -1000000 through 1000000. Your parameter names can be changed by other players.", "left, right",
+             "Return the sum of the two integer arguments. Arithmetic wraps in the range -1000000 through 1000000. Parameters shadow shared values during calls and do not publish by themselves.", "left, right",
              [{"input": [2, 3], "expected": 5}, {"input": [-7, 4], "expected": -3}, {"input": [1000000, 1], "expected": -1000000, "hidden": True}, {"input": [0, 0], "expected": 0, "hidden": True}],
              ["int", "int"], entry="sum_answer"),
         task("cyclic-access", "Around the list", "easy", 70,

@@ -33,7 +33,7 @@ export function createCompletions(_version: LangVersion, _extraKeywords: string[
   const options: Completion[] = [
     ...KEYWORDS.filter((word) => !['fn', 'if', 'while', 'let'].includes(word)).map((label) => ({ label, type: 'keyword' })),
     ...BUILTINS.map((label) => ({ label, type: 'function', detail: 'standard operation' })),
-    ...ANNOTATIONS.map((word) => ({ label: `@${word}`, type: 'keyword' })),
+    ...ANNOTATIONS.map((word) => ({ label: `@${word}`, type: 'keyword', ...(word === 'contains' ? { detail: t('Disabled by default'), info: t('Administrators can change which operations may be overridden. contains overrides are disabled by default.') } : {}) })),
     { label: 'fn', type: 'keyword', apply: snippet('fn ${name}(${value}) {\n  return ${value};\n}') },
     { label: 'if', type: 'keyword', apply: snippet('if (${condition}) {\n  ${}\n}') },
     { label: 'while', type: 'keyword', apply: snippet('while (${condition}) {\n  ${}\n}') },

@@ -3,13 +3,14 @@ import hashlib
 import re
 
 from .store import iso
+from .task_visibility import task_visible
 
 SOLUTION_KINDS = {"accepted", "rejected", "broken", "repaired", "breaking"}
 GENERIC_KINDS = {"info", "success", "error"}
 MAX_HISTORY = 500
 PUBLIC_EVENT_FIELDS = {"id", "kind", "createdAt", "read", "taskId", "taskTitle", "submissionId", "verdictStatus", "occurredAt", "historical"}
 EVENT_DETAILS = PUBLIC_EVENT_FIELDS - {"id", "kind", "createdAt", "read"}
-PRIVATE_SUBMISSION_FIELDS = {"brokenUserIds", "brokenSubmissionIds", "impactedUserIds", "notificationState", "actorUserId", "actorSubmissionId", "causeSubmissionId", "breakAuditId", "before", "after", "snapshot", "breaker", "breakImpact"}
+PRIVATE_SUBMISSION_FIELDS = {"brokenUserIds", "brokenSubmissionIds", "impactedUserIds", "notificationState", "actorUserId", "actorSubmissionId", "causeSubmissionId", "breakAuditId", "before", "after", "snapshot", "breaker", "breakImpact", "publishedNames"}
 LEGACY_PRIVATE_NOTICES = {"Code is private to its author.", "Код доступен только автору."}
 LEGACY_RUN_NOTICE = re.compile(r"(?:Sample run|Примеры): (?:OK|FAIL|CE|TLE|MLE|RE|WRONG_ANSWER|BROKEN)")
 
@@ -88,6 +89,8 @@ def impact(tx, user_ids, settings):
 
 def project(tx, value, settings, viewer=None):
     if viewer is not None and viewer.get("id") != value.get("userId"):
+        return None
+    if value.get("taskId") and not task_visible(tx, tx.get("tasks", value["taskId"]), viewer):
         return None
     kind = value["kind"]
     if kind in GENERIC_KINDS:
