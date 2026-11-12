@@ -539,6 +539,9 @@ class Runtime:
         self.bytecode_functions = dict(self.functions)
         self.bytecode["<global>"] = flatten(program["top"])
         self.redirects = self.build_redirects()
+        if self.redirects:
+            # Redirect topology can change when an inherited function disappears.
+            self.dependencies.add("@control")
 
     def check_keyword(self, keyword, pos=0):
         allowed = self.options.get("allowed_keywords")
@@ -614,6 +617,7 @@ class Runtime:
         if depth > 64: raise Exhausted("Cast depth limit exceeded")
         source = kind(value)
         if source == target: return value
+        if not bypass: self.dependencies.add("@cast")
         if self.contract: raise Rejected(f"Implicit casts are forbidden inside @{self.contract}", "CONTRACT")
         if not bypass:
             overrides = [self.functions[n] for n in self.function_order if n in self.functions and self.functions[n].get("annotation") == "cast" and self.functions[n].get("cast_to") == target and (not self.functions[n]["types"] or self.functions[n]["types"][0] == source)]
@@ -848,6 +852,7 @@ class Runtime:
         if self.calls > 64: raise Exhausted("Call depth limit exceeded")
         previous = self.contract
         name = function["name"]
+        self.dependencies.add(name)
         try:
             for index, param in enumerate(function["params"]):
                 value = args[index] if index < len(args) else 0
@@ -874,6 +879,7 @@ class Runtime:
                 self.check_keyword("comefrom", redirect[3])
                 name, index = redirect[:2]
                 self.check_function_keywords(name)
+                if name != "<global>": self.dependencies.add(name)
                 code = self.bytecode[name]
                 continue
             op = stmt["op"]
@@ -973,8 +979,15 @@ def validate_publication(snapshot, changes, options=None):
         return [diagnostic(Exhausted())]
 
 
-def contract_samples():
-    """A small corpus, freshly sampled in the sandbox without a public seed."""
+def contract_samples(cheap=False):
+    """Use the full fresh corpus unless an administrator opts into reduced coverage."""
+    if cheap:
+        return {
+            "int": [0, 1, -1, LIMIT],
+            "string": ["", "a", "ab"],
+            "list": [[], [0], [0, 1]],
+            "dict": [{"$dict": []}, {"$dict": [[0, 1]]}],
+        }
     rng = random.SystemRandom()
     samples = {
         "int": [0, 1, -1, 42, -42, LIMIT, -LIMIT, 2, 7, 193, -971, 800009],
@@ -1008,17 +1021,19 @@ def _validate_publication(snapshot, changes, options):
             if replacement and replacement.get("annotation") != annotation: raise Rejected(f"Replacement must retain @{annotation}", "CONTRACT")
     merged = merge_snapshot(snapshot, changes)
     for function in merged["functions"].values(): check_contract_syntax(function)
-    samples = contract_samples()
+    cheap = options.get("cheap_invariants", False)
+    samples = contract_samples(cheap=True) if cheap else contract_samples()
     # Published values and constants in the submitted functions are adversarial
     # probes too, so a simple hidden magic constant cannot evade the base suite.
-    for value in list(changes.get("variables", {}).values())[:16]:
-        domain = kind(decode(value))
-        if len(samples[domain]) < 20: samples[domain].append(value)
-    for function in merged["functions"].values():
-        for stmt in flatten(function["body"]):
-            for expr in expression_walk(stmt.get("expr", ["int", 0])):
-                if expr[0] in ("int", "string") and len(samples[expr[0]]) < 20 and expr[1] not in samples[expr[0]]:
-                    samples[expr[0]].append(expr[1])
+    if not cheap:
+        for value in list(changes.get("variables", {}).values())[:16]:
+            domain = kind(decode(value))
+            if len(samples[domain]) < 20: samples[domain].append(value)
+        for function in merged["functions"].values():
+            for stmt in flatten(function["body"]):
+                for expr in expression_walk(stmt.get("expr", ["int", 0])):
+                    if expr[0] in ("int", "string") and len(samples[expr[0]]) < 20 and expr[1] not in samples[expr[0]]:
+                        samples[expr[0]].append(expr[1])
     # Contract probes validate shared invariants, independently of a challenge's
     # execution restrictions. Dormant shared definitions must not block an
     # otherwise valid challenge publication.

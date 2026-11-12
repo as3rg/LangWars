@@ -17,6 +17,7 @@ def initial_world():
         "runCooldownSeconds": 2, "submitCooldownSeconds": 10,
         "resubmitPenaltyEnabled": False, "resubmitPenaltyPercent": 5,
         "solutionNotificationsEnabled": True, "showBreakerIdentity": False, "breakImpactVisibility": "count",
+        "dependencyCausalChecksEnabled": False, "cheapInvariantChecksEnabled": False,
         "allowedWords": sorted(set(WORDS)), "denyWords": [],
         "permittedOverrides": list(DEFAULT_OVERRIDES), "defaultCoreOverrideLimit": 2, "maxQueuedJobs": 300,
     }}

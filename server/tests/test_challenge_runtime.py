@@ -111,16 +111,21 @@ class ChallengeRuntimeTests(unittest.TestCase):
     def test_contract_probes_are_independent_of_challenge_keyword_policy(self):
         inherited = compile_program('@length fn <list> helper(blue){if(0){return 0;}return __builtin_length__(blue);}@solution fn old(){return 0;}')
         snapshot = {"variables": {}, "functions": inherited["functions"], "last": {}}
-        self.check('@solution fn red(){return 0;}', snapshot=snapshot, allowed_keywords=["return"])
-        errors = validate_publication({}, {"functions": inherited["functions"]}, {"allowed_keywords": ["return"]})
-        self.assertEqual(errors[0]["code"], "KEYWORD_DISABLED", errors)
-        result = judge('@solution fn red(){return length([]);}', [{"input": [], "expected": 0}],
-                       snapshot, {"allowed_keywords": ["return"]})
-        self.assertEqual(result["diagnostics"][0]["code"], "KEYWORD_DISABLED", result)
+        for cheap in (False, True):
+            with self.subTest(cheap=cheap):
+                options = {"allowed_keywords": ["return"], "cheap_invariants": cheap}
+                self.check('@solution fn red(){return 0;}', snapshot=snapshot, **options)
+                errors = validate_publication({}, {"functions": inherited["functions"]}, options)
+                self.assertEqual(errors[0]["code"], "KEYWORD_DISABLED", errors)
+                result = judge('@solution fn red(){return length([]);}', [{"input": [], "expected": 0}], snapshot, options)
+                self.assertEqual(result["diagnostics"][0]["code"], "KEYWORD_DISABLED", result)
 
     def test_inherited_comefrom_cannot_bypass_function_keyword_guards(self):
         inherited = compile_program('fn helper(){comefrom blue;if(1){return 3;}}fn target(){blue:return 2;}@solution fn old(){return 0;}')
         snapshot = {"variables": {}, "functions": inherited["functions"], "last": {}}
+        allowed = self.check('@solution fn red(){return target();}', 3, snapshot=snapshot,
+                             allowed_keywords=["return", "comefrom", "if"])
+        self.assertTrue({"@control", "helper", "target"} <= set(allowed["dependencies"]))
         result = judge('@solution fn red(){return target();}', [{"input": [], "expected": 3}],
                        snapshot, {"allowed_keywords": ["return", "comefrom"]})
         self.assertEqual(result["diagnostics"][0]["code"], "KEYWORD_DISABLED", result)

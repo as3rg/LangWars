@@ -231,6 +231,14 @@ def snapshot(store, *, force=False, now=None):
             activity = _statistics(rows)
             activity["byMode"] = [{"mode": mode, **_statistics([row for row in rows if row[1] == mode])} for mode in MODES if any(row[1] == mode for row in rows)]
             audits = tx.list("break_audits")
+        audit_times = []
+        for audit in audits:
+            try:
+                audit_times.append(datetime.fromisoformat(audit["createdAt"].replace("Z", "+00:00")).timestamp())
+            except (KeyError, TypeError, ValueError):
+                continue
+        queue_full = foreground_queued + foreground_running >= settings["maxQueuedJobs"]
+        comparisons_full = len(audits) >= MAX_PENDING_AUDITS and not settings.get("dependencyCausalChecksEnabled", False)
         result = {"generatedAt": _iso(timestamp), "windowSeconds": WINDOW_SECONDS,
                   "heartbeatSeconds": HEARTBEAT_SECONDS, "staleAfterSeconds": STALE_AFTER_SECONDS,
                   "workers": {"online": sum(item["state"] != "offline" for item in workers), "busy": sum(item["state"] == "busy" for item in workers), "stale": sum(item["state"] == "offline" for item in workers), "items": workers},
@@ -238,7 +246,10 @@ def snapshot(store, *, force=False, now=None):
                             "oldestWaitSeconds": oldest, "meanWaitSeconds": max(0, timestamp - queued_created / queued) if queued else None,
                             "foregroundQueued": foreground_queued, "foregroundRunning": foreground_running,
                             "admissionUsed": foreground_queued + foreground_running, "byMode": [per_mode[mode] for mode in MODES if mode in per_mode]},
-                  "activity": activity, "audits": {"pending": len(audits), "remainingCandidates": sum(max(0, audit["total"] - audit["cursor"]) for audit in audits), "capacity": MAX_PENDING_AUDITS}}
+                  "admission": {"runAllowed": not queue_full, "submitAllowed": not queue_full and not comparisons_full,
+                                "reasons": (["QUEUE_FULL"] if queue_full else []) + (["NOTIFICATION_BACKLOG"] if comparisons_full else [])},
+                  "activity": activity, "audits": {"pending": len(audits), "remainingCandidates": sum(max(0, audit["total"] - audit["cursor"]) for audit in audits), "capacity": MAX_PENDING_AUDITS,
+                  "oldestPendingSeconds": max(0, timestamp - min(audit_times)) if audit_times else None}}
         if now is None:
             _cache[store] = tick, result
         return copy.deepcopy(result)

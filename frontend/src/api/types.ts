@@ -114,6 +114,8 @@ export interface PlatformSettings {
   resubmitPenaltyEnabled: boolean
   resubmitPenaltyPercent: number
   solutionNotificationsEnabled: boolean
+  dependencyCausalChecksEnabled: boolean
+  cheapInvariantChecksEnabled: boolean
   showBreakerIdentity: boolean
   breakImpactVisibility: 'usernames' | 'count' | 'hidden'
   worldVisibility: Record<'variables' | 'functions', Record<'names' | 'values', 'admin_only' | 'public'>>
@@ -373,7 +375,8 @@ export interface PerformanceSnapshot {
     byMode: { mode: string; queued: number; running: number; meanWaitSeconds: number | null; oldestWaitSeconds: number | null }[]
   }
   activity: PerformanceActivity & { byMode: (PerformanceActivity & { mode: string })[] }
-  audits: { pending: number; remainingCandidates: number; capacity: number }
+  admission: { runAllowed: boolean; submitAllowed: boolean; reasons: ('QUEUE_FULL' | 'NOTIFICATION_BACKLOG')[] }
+  audits: { pending: number; remainingCandidates: number; capacity: number; oldestPendingSeconds: number | null }
   api: {
     processId: number
     uptimeSeconds: number

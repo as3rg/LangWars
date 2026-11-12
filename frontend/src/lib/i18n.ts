@@ -16,6 +16,8 @@ export function t(text: string, values?: Record<string, string | number>): strin
   if (!values && useLocale.getState().locale === 'ru') {
     const cooldown = text.match(/^Try again in ([\d.]+) seconds$/)
     if (cooldown) return t('Try again in {seconds} seconds', { seconds: cooldown[1] })
+    const comparisons = text.match(/^Submissions are paused: solution comparisons are full \((\d+)\/(\d+)\)\. Try again shortly\.$/)
+    if (comparisons) return t('Submissions are paused: solution comparisons are full ({pending}/{capacity}). Try again shortly.', { pending: comparisons[1], capacity: comparisons[2] })
     const fee = text.match(/^Submitting this solved task costs (\d+) points$/)
     if (fee) return t('Resubmission costs {points} points. Review the updated price before submitting.', { points: fee[1] })
     if (/contains a word blocked by the platform$/.test(text)) return t('This text contains a blocked word.')

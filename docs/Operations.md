@@ -111,6 +111,15 @@ is time spent processing claims, including database waits and sandbox execution;
 it is not CPU usage. A causal claim processes one candidate against two worlds.
 Judge rejections such as a wrong answer are completed work, not infrastructure errors.
 
+Run and Submit availability have separate global gates. The foreground job limit
+applies to both; 32 pending publication comparisons also block Submit, even when
+job slots are free. A comparison slot is released only after every candidate for
+that publication finishes. The dashboard shows both gates and the oldest pending
+comparison. It is a cached observation, not a reservation; account cooldowns and
+personal pending-job limits still apply. A NOTIFICATION_BACKLOG admission response
+includes `pendingAudits` and `capacity` measured at rejection time. See
+[the mixed stress-run analysis](StressTestAnalysis.md) for the reported numbers.
+
 The dashboard polls every 10 seconds while open; queue snapshots are cached for
 5 seconds per API process. Each worker sends one heartbeat every 10 seconds using
 an independent connection without the publication lock. After 35 seconds without
@@ -154,6 +163,28 @@ default Compose files, while competing publications can cause world-version
 retries. Persistent overload needs a lower admission rate or more measured
 processing capacity. Stop old workers before upgrading API/schema and restart
 all workers from the same release; preserve the database volume.
+
+## Optional worker overload fallbacks
+
+Administration → Settings exposes two independent switches, both disabled by
+default. Existing installations receive the disabled defaults without replacing
+configured values. Saving a switch versions the world, so in-flight publications
+retry with the current settings.
+
+`dependencyCausalChecksEnabled` selects live rechecks and causal comparisons from
+recorded name, operation and control-flow dependencies. Unrelated publications
+can avoid comparisons; shared-name collisions still compare affected solutions.
+Legacy dependency records and solutions awaiting a live recheck are handled
+conservatively, so the first publications after upgrading may still do broad work.
+The early comparison-backlog refusal is deferred until publication, which still
+requires free comparison capacity when there are affected solutions.
+
+`cheapInvariantChecksEnabled` reduces the invariant sample corpus. It retains
+contract families and execution restrictions but offers weaker coverage and can
+accept invalid overrides or reject valid overrides whose witnesses are absent.
+This is a risky fallback for worker overload. Disabling it restores full checks
+for subsequent jobs; it does not revalidate or undo previously published state.
+Neither switch relaxes sandbox process, lease or publication-version protections.
 
 ## Execution boundary
 
