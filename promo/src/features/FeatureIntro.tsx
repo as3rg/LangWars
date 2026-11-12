@@ -5,7 +5,7 @@ import {
   interpolate,
   useCurrentFrame,
 } from "remotion";
-import { FeatureBackground, FeatureHeader } from "./FeatureChrome";
+import { FeatureBackground, FeatureHeader, FeatureTitle } from "./FeatureChrome";
 import { JunkBall } from "./JunkBall";
 
 export const FeatureIntro: React.FC = () => {
@@ -21,12 +21,18 @@ export const FeatureIntro: React.FC = () => {
     <AbsoluteFill>
       <FeatureBackground />
       <FeatureHeader index="LWLANG · OVERVIEW" />
+      <FeatureTitle
+        kicker="MEET LWLANG"
+        title="THE MODERN, USER-FRIENDLY LANGUAGE"
+        subtitle="some assembly required · mostly duct tape"
+        maxWidth={620}
+      />
 
       <div
         style={{
           position: "absolute",
-          left: 580,
-          top: 120,
+          left: 760,
+          top: 170,
           opacity: entry,
           scale: interpolate(frame, [0, 18], [0.94, 1], {
             extrapolateLeft: "clamp",
@@ -35,7 +41,7 @@ export const FeatureIntro: React.FC = () => {
           }),
         }}
       >
-        <JunkBall size={760} />
+        <JunkBall size={700} />
       </div>
     </AbsoluteFill>
   );

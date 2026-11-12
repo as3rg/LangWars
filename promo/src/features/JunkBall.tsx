@@ -222,6 +222,7 @@ export const JunkBall: React.FC<{ size?: number; faint?: boolean }> = ({
           inset: 0,
           rotate: `${spin + wobble}deg`,
           scale: 1 + Math.sin(frame * 0.09) * 0.008,
+          filter: "drop-shadow(0 14px 20px rgba(0,0,0,0.35))",
         }}
       >
         {renderDebris.map((piece, index) => (
@@ -253,7 +254,6 @@ export const JunkBall: React.FC<{ size?: number; faint?: boolean }> = ({
                 width: item.w,
                 height: item.h,
                 rotate: `${item.rotate + drift}deg`,
-                filter: "drop-shadow(0 14px 22px rgba(0,0,0,0.42))",
               }}
             >
               <Icon />

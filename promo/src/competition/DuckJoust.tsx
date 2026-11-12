@@ -1,19 +1,10 @@
 import React from "react";
-import {
-  AbsoluteFill,
-  Easing,
-  interpolate,
-  spring,
-  useCurrentFrame,
-  useVideoConfig,
-} from "remotion";
-import { displayFont } from "../fonts";
+import { AbsoluteFill, Easing, interpolate, useCurrentFrame } from "remotion";
 import { COLORS } from "../theme";
 import { DuckKnight } from "./CompetitionIcons";
 
 export const DuckJoust: React.FC = () => {
   const frame = useCurrentFrame();
-  const { fps } = useVideoConfig();
 
   const charge = interpolate(frame, [4, 74], [0, 1], {
     extrapolateLeft: "clamp",
@@ -30,12 +21,6 @@ export const DuckJoust: React.FC = () => {
       extrapolateLeft: "clamp",
       extrapolateRight: "clamp",
     });
-
-  const bubble = spring({
-    frame: frame - 22,
-    fps,
-    config: { damping: 12, stiffness: 180, mass: 0.6 },
-  });
 
   const impact = interpolate(frame, [70, 76, 90], [0, 1, 0.25], {
     extrapolateLeft: "clamp",
@@ -299,62 +284,6 @@ export const DuckJoust: React.FC = () => {
           />
         ) : null}
       </AbsoluteFill>
-
-      <div
-        style={{
-          position: "absolute",
-          left: 300,
-          top: 500,
-          opacity: bubble,
-          scale: interpolate(bubble, [0, 1], [0.5, 1], {
-            extrapolateLeft: "clamp",
-            extrapolateRight: "clamp",
-          }),
-          rotate: "-7deg",
-        }}
-      >
-        <div
-          style={{
-            position: "relative",
-            padding: "18px 30px",
-            borderRadius: 26,
-            background: "#f7f1e3",
-            border: "5px solid #151a21",
-            fontFamily: displayFont,
-            fontSize: 52,
-            fontWeight: 700,
-            color: "#151a21",
-            letterSpacing: 2,
-            boxShadow: "0 16px 30px rgba(0,0,0,0.35)",
-          }}
-        >
-          QUACK!
-          <div
-            style={{
-              position: "absolute",
-              left: 54,
-              bottom: -28,
-              width: 0,
-              height: 0,
-              borderLeft: "20px solid transparent",
-              borderRight: "0 solid transparent",
-              borderTop: "30px solid #151a21",
-            }}
-          />
-          <div
-            style={{
-              position: "absolute",
-              left: 59,
-              bottom: -18,
-              width: 0,
-              height: 0,
-              borderLeft: "14px solid transparent",
-              borderRight: "0 solid transparent",
-              borderTop: "22px solid #f7f1e3",
-            }}
-          />
-        </div>
-      </div>
 
       <AbsoluteFill
         style={{

@@ -94,14 +94,15 @@ export const FeatureTitle: React.FC<{
   title: string;
   subtitle?: string;
   accent?: string;
-}> = ({ kicker, title, subtitle, accent = COLORS.green }) => {
+  maxWidth?: number;
+}> = ({ kicker, title, subtitle, accent = COLORS.green, maxWidth = 1250 }) => {
   return (
     <div
       style={{
         position: "absolute",
         left: 120,
         top: 142,
-        maxWidth: 1250,
+        maxWidth,
       }}
     >
       <div

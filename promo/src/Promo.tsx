@@ -1,9 +1,8 @@
 import React from "react";
-import { AbsoluteFill, Sequence } from "remotion";
-import { MusicBed } from "./audio/MusicBed";
-import { Sfx, type SfxEvent } from "./audio/Sfx";
-import { BasicCaptions } from "./basic-captions.element";
+import { Audio } from "@remotion/media";
+import { AbsoluteFill, Sequence, staticFile } from "remotion";
 import { CompetitionSection } from "./competition/CompetitionSection";
+import { FinalScene } from "./competition/FinalScene";
 import { PlatformTransition } from "./competition/PlatformTransition";
 import { LanguageSection } from "./features/LanguageSection";
 import { SceneAftermath } from "./scenes/SceneAftermath";
@@ -13,19 +12,7 @@ import { SceneNukeSetup } from "./scenes/SceneNukeSetup";
 import { SceneRage } from "./scenes/SceneRage";
 import { SceneRival } from "./scenes/SceneRival";
 
-const narrativeSfx: SfxEvent[] = [
-  { src: "whoosh.wav", from: 0, volume: 0.18 },
-  { src: "windows-xp-error.wav", from: 44, volume: 0.35 },
-  { src: "whoosh.wav", from: 85, volume: 0.2 },
-  { src: "ding.wav", from: 104, volume: 0.28 },
-  { src: "triggered.wav", from: 145, volume: 0.25 },
-  { src: "whoosh.wav", from: 185, volume: 0.2 },
-  { src: "mouse-click.wav", from: 219, volume: 0.18 },
-  { src: "vine-boom.wav", from: 283, volume: 0.4 },
-  { src: "record-scratch.wav", from: 300, volume: 0.25 },
-  { src: "whoosh.wav", from: 321, volume: 0.18 },
-  { src: "fah.wav", from: 330, volume: 0.24 },
-];
+
 
 export const LangWarsPromo: React.FC = () => {
   return (
@@ -64,8 +51,15 @@ export const LangWarsPromo: React.FC = () => {
         <CompetitionSection />
       </Sequence>
 
-      <Sfx events={narrativeSfx} />
-      <MusicBed durationInFrames={1176} />
+      <Sequence name="Final scene" from={1176} durationInFrames={150}>
+        <FinalScene />
+      </Sequence>
+
+      <Audio
+        name="Desired soundtrack"
+        src={staticFile("audio.wav")}
+        durationInFrames={1326}
+      />
     </AbsoluteFill>
   );
 };

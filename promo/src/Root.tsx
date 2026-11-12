@@ -1,31 +1,10 @@
 import React from "react";
 import { Composition } from "remotion";
-import { MusicBed } from "./audio/MusicBed";
 import { CompetitionSection } from "./competition/CompetitionSection";
+import { FinalScene } from "./competition/FinalScene";
 import { PlatformTransition } from "./competition/PlatformTransition";
 import { LanguageSection } from "./features/LanguageSection";
 import { LangWarsPromo } from "./Promo";
-
-const LanguageWithMusic: React.FC = () => (
-  <>
-    <LanguageSection />
-    <MusicBed durationInFrames={486} />
-  </>
-);
-
-const CompetitionsWithMusic: React.FC = () => (
-  <>
-    <CompetitionSection />
-    <MusicBed durationInFrames={210} />
-  </>
-);
-
-const PlatformWithMusic: React.FC = () => (
-  <>
-    <PlatformTransition />
-    <MusicBed durationInFrames={120} />
-  </>
-);
 
 export const RemotionRoot: React.FC = () => {
   return (
@@ -33,14 +12,14 @@ export const RemotionRoot: React.FC = () => {
       <Composition
         id="LangWarsPromo"
         component={LangWarsPromo}
-        durationInFrames={1176}
+        durationInFrames={1326}
         fps={30}
         width={1920}
         height={1080}
       />
       <Composition
         id="LWLangFeatures"
-        component={LanguageWithMusic}
+        component={LanguageSection}
         durationInFrames={486}
         fps={30}
         width={1920}
@@ -48,7 +27,7 @@ export const RemotionRoot: React.FC = () => {
       />
       <Composition
         id="LangWarsCompetitions"
-        component={CompetitionsWithMusic}
+        component={CompetitionSection}
         durationInFrames={210}
         fps={30}
         width={1920}
@@ -56,8 +35,16 @@ export const RemotionRoot: React.FC = () => {
       />
       <Composition
         id="PlatformZoom"
-        component={PlatformWithMusic}
+        component={PlatformTransition}
         durationInFrames={120}
+        fps={30}
+        width={1920}
+        height={1080}
+      />
+      <Composition
+        id="FinalScene"
+        component={FinalScene}
+        durationInFrames={150}
         fps={30}
         width={1920}
         height={1080}

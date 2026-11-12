@@ -25,7 +25,7 @@ const TONE_COLOR: Record<Tone, string> = {
   amber: SITE.amber,
 };
 
-const CatMascot: React.FC<{ size: number }> = ({ size }) => (
+export const CatMascot: React.FC<{ size: number }> = ({ size }) => (
   <svg
     viewBox="0 0 64 64"
     width={size}

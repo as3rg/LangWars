@@ -1,8 +1,9 @@
 import React from "react";
 import { AbsoluteFill, Easing, interpolate, useCurrentFrame } from "remotion";
+import { displayFont, monoFont } from "../fonts";
+import { COLORS } from "../theme";
 import { GUY, HomeStage } from "../components/Room";
 import { SittingGuy } from "../components/SittingGuy";
-import { Sfx, type SfxEvent } from "../audio/Sfx";
 import { LangWarsSite } from "./LangWarsSite";
 
 const SITE_WIDTH = 1920;
@@ -12,13 +13,7 @@ const SCREEN_HEIGHT = 594;
 const SITE_SCALE = SCREEN_WIDTH / SITE_WIDTH;
 const SITE_TOP = (SCREEN_HEIGHT - SITE_HEIGHT * SITE_SCALE) / 2;
 
-const transitionSfx: SfxEvent[] = [
-  { src: "whoosh.wav", from: 0, volume: 0.18 },
-  { src: "switch.wav", from: 22, volume: 0.2 },
-  { src: "whoosh.wav", from: 24, volume: 0.25 },
-  { src: "anime-wow.wav", from: 84, volume: 0.16 },
-  { src: "whoosh.wav", from: 96, volume: 0.2 },
-];
+
 
 export const PlatformTransition: React.FC = () => {
   const frame = useCurrentFrame();
@@ -34,6 +29,11 @@ export const PlatformTransition: React.FC = () => {
   const fade = interpolate(frame, [104, 118], [0, 1], {
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp",
+  });
+  const titleEntry = interpolate(frame, [0, 16], [0, 1], {
+    extrapolateLeft: "clamp",
+    extrapolateRight: "clamp",
+    easing: Easing.bezier(0.16, 1, 0.3, 1),
   });
 
   return (
@@ -71,6 +71,64 @@ export const PlatformTransition: React.FC = () => {
         >
           <SittingGuy mood="smug" width={GUY.width} />
         </div>
+
+        <div
+          style={{
+            position: "absolute",
+            left: 110,
+            top: 120,
+            width: 640,
+            padding: "24px 28px",
+            borderRadius: 16,
+            border: "1px solid rgba(15, 241, 202, 0.28)",
+            background:
+              "linear-gradient(160deg, rgba(5, 5, 16, 0.90), rgba(5, 5, 16, 0.76))",
+            boxShadow:
+              "0 30px 70px rgba(0,0,0,0.55), 0 0 34px rgba(15,241,202,0.10)",
+            backdropFilter: "blur(6px)",
+            opacity: titleEntry,
+            translate: `0px ${16 - titleEntry * 16}px`,
+            pointerEvents: "none",
+          }}
+        >
+          <div
+            style={{
+              fontFamily: monoFont,
+              fontSize: 17,
+              color: COLORS.amber,
+              letterSpacing: 3.4,
+            }}
+          >
+            LANGWARS EVENTS
+          </div>
+          <div
+            style={{
+              marginTop: 12,
+              fontFamily: displayFont,
+              fontSize: 58,
+              fontWeight: 700,
+              color: COLORS.text,
+              lineHeight: 1.02,
+              letterSpacing: -1,
+              textShadow: "0 2px 18px rgba(0,0,0,0.75)",
+            }}
+          >
+            ENTERTAINING
+            <br />
+            CHALLENGES
+          </div>
+          <div
+            style={{
+              marginTop: 12,
+              fontFamily: displayFont,
+              fontSize: 22,
+              color: COLORS.muted,
+              letterSpacing: 0.2,
+            }}
+          >
+            participation is mandatory · fun is not
+          </div>
+        </div>
       </AbsoluteFill>
 
       <AbsoluteFill
@@ -80,7 +138,6 @@ export const PlatformTransition: React.FC = () => {
           pointerEvents: "none",
         }}
       />
-      <Sfx events={transitionSfx} />
     </AbsoluteFill>
   );
 };
