@@ -248,8 +248,8 @@ export const FeatureIntegers: React.FC = () => {
         }}
       >
         <Stamp
-          text="LOGICAL"
-          subtext="AS FUCK"
+          text="DESIGN"
+          subtext="IS VERY HUMAN"
           color={COLORS.amber}
           rotate={7}
           scale={0.78}

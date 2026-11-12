@@ -50,65 +50,6 @@ export const LangWarsPromo: React.FC = () => {
           <SceneAftermath />
         </Sequence>
 
-        <BasicCaptions
-          name="Subtitles"
-          width={1280}
-          style={{
-            position: "absolute",
-            left: 320,
-            bottom: 64,
-          }}
-          captions={[
-            {
-              text: " Day 47. Still can't pass Two Sum.",
-              startMs: 500,
-              endMs: 4400,
-              timestampMs: 2300,
-              confidence: null,
-              pageBreakAfter: true,
-            },
-            {
-              text: " That random just solved it... and got ABOVE me?!",
-              startMs: 5000,
-              endMs: 7900,
-              timestampMs: 6400,
-              confidence: null,
-              pageBreakAfter: true,
-            },
-            {
-              text: " Time to ruin his life.",
-              startMs: 8400,
-              endMs: 10000,
-              timestampMs: 9200,
-              confidence: null,
-              pageBreakAfter: true,
-            },
-            {
-              text: " One variable. That's all it takes.",
-              startMs: 10400,
-              endMs: 12400,
-              timestampMs: 11400,
-              confidence: null,
-              pageBreakAfter: true,
-            },
-            {
-              text: " Nuke incoming.",
-              startMs: 13200,
-              endMs: 15200,
-              timestampMs: 14200,
-              confidence: null,
-              pageBreakAfter: true,
-            },
-            {
-              text: " He redefined my variables. My life is over.",
-              startMs: 15800,
-              endMs: 18800,
-              timestampMs: 17300,
-              confidence: null,
-              pageBreakAfter: true,
-            },
-          ]}
-        />
       </Sequence>
 
       <Sequence name="Language" from={360} durationInFrames={486}>

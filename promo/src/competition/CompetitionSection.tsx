@@ -88,25 +88,6 @@ export const CompetitionSection: React.FC = () => {
 
         <Letterbox />
 
-        <BasicCaptions
-          name="Competition subtitles"
-          width={1280}
-          style={{
-            position: "absolute",
-            left: 320,
-            bottom: 64,
-          }}
-          captions={[
-            {
-              text: " We have entertaining competitions.",
-              startMs: 300,
-              endMs: 2600,
-              timestampMs: 1650,
-              confidence: null,
-              pageBreakAfter: true,
-            },
-          ]}
-        />
       </Sequence>
       <Sfx events={competitionSfx} />
     </AbsoluteFill>
