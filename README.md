@@ -2,7 +2,7 @@
 
 A shared-state programming arena. The browser calls a real API; accepted solutions publish variables and functions into a common world. Later submissions can break earlier solutions, and the worker rechecks affected submissions and recalculates scores.
 
-The interface calls the language **LWLang**. Its implementation follows [LangWarsScript](docs/LangWarsScriptSpec.md), with explicit implementation decisions in [the interpreter notes](server/langwarsscript/DECISIONS.md).
+The interface calls the language **LWLang**. Its implementation follows [the specification](docs/LWLangSpec.md), with explicit implementation decisions in [the interpreter notes](server/langwarsscript/DECISIONS.md).
 
 ## Run with Docker
 
